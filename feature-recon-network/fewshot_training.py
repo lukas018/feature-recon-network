@@ -1,7 +1,7 @@
 from torch import functional as F
 
 
-def fewshot_epoch(learner, batch, query_k, device="cuda"):
+def fewshot_episode(learner, batch, query_k, device="cuda"):
     """Perform fewshot epoch
 
     :param learner:
@@ -34,57 +34,99 @@ def fewshot_epoch(learner, batch, query_k, device="cuda"):
     return loss, acc
 
 
-def initialize_dataloader(ds, args):
+class FewshotLearner():
+    """FewshotLearner
+    """
 
-    [
-        RandomNWays(ds, args.nways) if isinstance(args.nways, tuple) else NWays(ds, args.nways),
-        RandomKShot(ds, args.kshot) if isinstance(args.kshot, tuple) else KShot(ds, args.kshot),
-        ]
+    def __init__(self, learner,
+                 train_ds,
+                 args,
+                 base_val_ds=None,
+                 novel_val_ds=None,
+                 test_dsa=None,
+                 val_args=None
+                 ):
+
+        self.train_ds = train_ds
+        self.args = arguments
+        self.base_val_ds = base_val_ds
+        self.novel_val_ds = novel_val_ds
+        self.test_ds = test_ds
+        self.val_args = val_args
+
+    def dump(self, epoch):
+        modeldir = self.args.modeldir
+        torch.save(self.model.state_dict(), Path(modeldir, f"fewshot-model-{epoch}.pkl"))
+        torch.save(self.opt, Path(modeldir, f"fewshot-opt-{epoch}.pkl"))
+        torch.save(self.scheduler, Path(modeldir, f"fewshot-scheduler-{epoch}.pkl"))
+
+    def load(self, epoch):
+        modeldir = self.args.modeldir
+        self.model.load_state_dict(torch.load(Path(modeldir, f"fewshot-model-{epoch}.pkl")))
+        self.opt.load(Path(modeldir, f"fewshot-opt-{epoch}.pkl"))
+        self.scheduler.load(Path(modeldir, f"fewshot-scheduler-{epoch}.pkl"))
+
+    def fewshot_training(self,  num_episodes=None):
+        self.learner.train()
+
+        kquery = self.args.kquery
+        use_cuda = self.args.use_cuda
+        num_episodes = num_episodes if num_episodes is not None else self.args.num_episodes
+        losses, accs = [], []
+
+        for i in range(num_eposides):
+            batch = next(self.dl_train)
+            opt.zero_grad()
+            loss, acc = fewshot_episode(self.learner, batch, self.args.kquery, self.args.use_cuda)
+            loss.backward()
+            opt.update()
+
+            losses.append(loss.detach().data.numpy())
+            accs.append(acc)
+
+        return np.mean(losses), np.mean(accs)
+
+    def fewshot_eval(self, ds, num_episodes, args):
+        self.learner.eval()
+        dl  = initialize_taskdataset(ds, args.nways, args.kshot, args.num_workers)
+
+        kquery = self.val_args.kquery if self.val_ags is not None else self.args.kquery
+        use_cuda = self.val_args.use_cuda if self.val_args is not None else self.args.use_cuda
+
+        losses, accs = [], []
+        for i in range(num_episodes):
+            batch = next(dl)
+            loss, acc = fewshot_episode(self.learner, batch, kquery, use_cuda)
+            losses.append(loss.detach().data.numpy())
+            accs.append(acc)
+
+        return np.mean(losses), np.mean(accs)
+
+    def full_fewshot_eval(self):
+        res = {}
+        if self.base_val_ds is not None:
+            res['base/loss'], res['base/acc'] = self.fewshot_eval(self.base_val_ds,
+                                                                  self.args.eval_episodes,
+                                                                  self.args)
+        if self.novel_val_ds is not None:
+            res['novel/loss'], res['novel/acc'] =self.fewshot_eval(self.novel_val_ds,
+                                                                  self.args.eval_episodes,
+                                                                  self.args)
+        return res
 
 
+def fewshot_loop(ds):
+    writer = SummaryWriter(self.args.logdir)
+    statistics = Statistics(alpha=0.0)
 
+    for i in range(trainer.args.max_episodes // trainer.args.epoch_episodes):
+        loss, acc = trainer.fewshot_training()
 
+        statistics['fewshot/loss/train'] = loss
+        statistics['fewshot/acc/train'] = acc
 
-def fewshot_training(
-        frn,
-        datasets,
-        fewshot_args
-):
+        res = self.full_fewshot_eval()
+        for key, v in res.items():
+            statistics["fewshot/" + key] = v
 
-    train_ds, val_ds, test_ds = datasets
-    device = torch.device('cuda') if fewshot_args.use_cuda else torch.device('cpu')
-
-    train_dl = initialize_dataloader(train_ds, fewshot_args)
-
-    train_iter = iter(train_ds)
-    val_iter = iter(val_ds)
-    test_iter = iter(test_iter)
-
-    frn.train()
-
-    for i, batch in enumerate(train_ds):
-        opt.zero_grad()
-        loss, acc = fewshot_epoch(frn, batch, query_k, device)
-        err.backward()
-        opt.update()
-
-        writer.add_scalar('fewshot/loss/train', loss, i)
-        writer.add_scalar('fewshot/acc/train', acc, i)
-
-        if i % validation_step:
-            frn.validation()
-            res = [fewshot_epoch(frn, next(val_iter), query_k, device) for _ in range(25)]
-            loss, acc = *map(np.mean, map(np.array, zip(*res))),
-            writer.add_scalar('fewshot/loss/train', loss, i)
-            writer.add_scalar('fewshot/acc/train', acc, i)
-            frn.train()
-
-
-    frn.validation()
-    for i, batch in enumerate(test_ds):
-
-        for _ in range(eval_epochs):
-            loss, acc = fewshot_epoch(frn,
-                                      next(test_iter),
-                                      query_k, device)
-            tqdm.set_description(f"loss:{np.array(loss):.2f}, acc: {np.array(acc):.2f}")
+        statistics.write()
