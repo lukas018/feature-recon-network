@@ -15,6 +15,9 @@ from torch import functional as F
 
 @dataclass
 class TrainerState():
+    """Simple Wrapper for the trainer state
+    """
+
     epoch: int
     global_step: int
 
@@ -54,7 +57,6 @@ class FewshotTrainer():
 
     def save_checkpoint(self, model_path):
         if model_path is not None:
-
 
 
     def load_checkpoint(self, model_path):

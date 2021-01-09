@@ -4,6 +4,7 @@ from operator import itemgetter
 import torch
 import torch.utils.data as data
 import torch.nn as nn
+import torch.nn.functional as F
 from torch import linalg as LA
 from typing import Optional, Tuple
 
@@ -63,7 +64,8 @@ class FeatureReconNetwork():
 
         :param query: Set of images such that shape=(bsz x h x w x channels)
         :param support: Set of images such that shape=(n x k x h x w x channels)
-        :output logits: Prediction for each imput image. Logit dimension depends on mode-used.
+
+        :return: Prediction for each imput image. Logit dimension depends on mode-used.
         """
 
         # Compute and flatten the input features
@@ -84,6 +86,7 @@ class FeatureReconNetwork():
             lam = (self.num_channels / (nway * self.dimensions) * torch.exp(self.alpha))
 
             recons = self._reconstruct(query, support, r, lam)
+
             logits = (self._predictions(recons, query), aux_loss)
         else:
             # Standard predictions
@@ -142,9 +145,10 @@ class FeatureReconNetwork():
         return (query @ hat) * r
 
     def _predictions(self, recons, original):
-        k = recons.shape[1]
-        dists = -self.temperature * cdist(recons,  original.repeat((1, k, 1)), 2)
-        return dists / dists.sum(axis=-1)
+        n = recons.shape[0]
+        dists = cdist(recons.repeat(len(original, 1, 1)),  original.repeat((1, n, 1)), 2)
+        dists *= -self.temperature
+        return F.softmax(dists, )
 
 
 if __name__ == '__main__':

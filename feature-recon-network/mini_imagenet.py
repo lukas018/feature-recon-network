@@ -6,8 +6,11 @@ import torch.functional as F
 from learn2learn.data.transforms import Nways, Kshot, LoadImage, ConsecutiveLabels, RemapLabels
 from learn2learn.data import MetaDataset, TaskDataset
 
+from cached_property import cached_property
+
 from .random_transformers import RandomNways, RandomKshot
 from .fewshot_training import fewshot_episode
+import numpy as np, scipy.stats as st
 
 
 class Averager():
@@ -29,23 +32,64 @@ class Averager():
         return self.v
 
 
-class Statistics():
+class Stats():
 
-    def __init__(self, writer, alpha=0.95):
+    def __init__(self, moving_avg_window=None):
+        self._values = []
+        self.moving_avg_window = moving_avg_window
+
+    @property
+    def array(self):
+        return np.array(self._values)
+
+    @property
+    def mean(self):
+        if self.moving_avg_window is not None:
+            return np.mean(self.array[-self.moving_avg_window:])
+        else:
+            return np.mean(self.array)
+
+    @property
+    def std(self):
+        return np.std(self.array)
+
+    @property
+    def c95(self):
+        return self.conf_int(0.95)
+
+    def conf_int(self, c):
+        a = self.array
+        interval = st.t.interval(c, len(a)-1, loc=np.mean(a), scale=st.sem(a))
+        return interval
+
+    def __call__(self, *args):
+        self._values.extend([*args])
+
+
+class SummaryGroup():
+
+    def __init__(self, writer):
         self.writer = writer
-        self.averagers = defaultdict(partial(Averager, alpha=alpha))
+        self.stats = defaultdict(Statistics)
 
-    def __setitem__(self, key, value):
-        self.averagres[key](value)
+    def __setitem__(self, key, *values):
+        self.stats[key](value)
 
     def write(self, step):
-        for key, averager in self.averages.items():
-            writer.add_scalar(key, averager(), step)
+        for key, stats in self.stats.items():
+            writer.add_scalar(key, stats.mean, step)
 
     def __str__(self):
-        return '\n'.join([f"{key}:{averager()}"
-                          for key, averager
-                          in self.averages.items()])
+        strs = [f"{key}: {stat.mean:.3f} ± {stat.std:.3f}"
+                          for key, stat
+                          in self.stats.items()]
+        return '\n'.join(strs)
+
+    def join(sg):
+        new_sg = SummaryGroup(self.writer)
+        new_sg.stats = copy.deepcopy(new_sg.stats)
+        new_sg.stats.update(sg.stats)
+        return new_sg
 
 
 def initialize_taskdataset(ds, nways, kways, num_workers):
@@ -68,10 +112,8 @@ def fewshot_eval(learner, ds, num_episodes, args):
 
     for i in range(num_episodes):
         batch = next(dl)
-        loss, acc = fewshot_episode(learner, batch, query_k, device)
+        loss, res = fewshot_episode(learner, batch, query_k, device)
 
-        statistics[''] = loss.detach.cpu().numpy()
-        statistics[''] = acc
 
 
 def fewshot_trainig(learner, ds, num_episodes, args):

@@ -1,132 +1,237 @@
 from torch import functional as F
+from torch.utils.tensorboard import SummaryWriter
+from torch.utils.data import DataLoader
+
+import numpy as np
+from pathlib import Path
+from .freshot_utils import fewshot_episode
+
+from .data import initialize_taskdataset, classes_split, split_dataset, SummaryGroup
+
+@dataclass_json
+@dataclass
+class TrainingState():
+    epoch :int = 0
+    global_step: int = 0
+    current_step: int = 0
 
 
-def fewshot_episode(learner, batch, query_k, device="cuda"):
-    """Perform fewshot epoch
+class FewshotTrainer():
+    """FewshotTrainer
 
-    :param learner:
-    :param batch:
-    :param query_k:
+    General trainer wrapper for few-shot trainers
     """
 
-    data, labels = batch
-
-    nway = len(set(labels))
-    total_k = nway // len(labels)
-    k = total_k - query_k
-
-    data, labels = data.to(device), labels.to(device)
-
-    # Separate data into adaptation/evalutation sets
-    evaluation_indices = np.zeros(data.size(0), dtype=bool)
-    evaluation_indices[(np.arange(nway*k_total) % total_k) >= (total_k - query_k)] = True
-    evaluation_indices = torch.from_numpy(evaluation_indices)
-    adaptation_indices = torch.from_numpy(~evaluation_indices)
-
-    adaptation_data, adaptation_labels = data[adaptation_indices], labels[adaptation_indices]
-    evaluation_data, evaluation_labels = data[evaluation_indices], labels[evaluation_indices]
-
-    logits, aux_loss = learner(evaluation_data, adaptation_data)
-    loss = F.cross_entropy(logits, labels)
-    loss += aux_loss
-
-    acc = ((torch.max(logits)[1]) == labels) / (nway*total_k)
-    return loss, acc
-
-
-class FewshotLearner():
-    """FewshotLearner
-    """
-
-    def __init__(self, learner,
+    def __init__(self,
+                 model,
                  train_ds,
                  args,
-                 base_val_ds=None,
-                 novel_val_ds=None,
-                 test_dsa=None,
-                 val_args=None
-                 ):
+                 eval_args=None,
+                 optimizer=None,
+                 scheduler=None,
+                 base_eval_dataset=None,
+                 novel_eval_dataset=None,
+                 on_epoch_end_callback = None,
+                 on_update_callback = None
+        ):
 
+        self.model = model
         self.train_ds = train_ds
-        self.args = arguments
-        self.base_val_ds = base_val_ds
-        self.novel_val_ds = novel_val_ds
-        self.test_ds = test_ds
-        self.val_args = val_args
+        self.args = args
+        self.eval_args = eval_args
 
-    def dump(self, epoch):
-        modeldir = self.args.modeldir
-        torch.save(self.model.state_dict(), Path(modeldir, f"fewshot-model-{epoch}.pkl"))
-        torch.save(self.opt, Path(modeldir, f"fewshot-opt-{epoch}.pkl"))
-        torch.save(self.scheduler, Path(modeldir, f"fewshot-scheduler-{epoch}.pkl"))
+        if optimizer is None:
+            self.optimzer = torch.optim.SGD(self.model.parameters(), momentum=0.9)
+        else:
+            self.optimizer = optimizer
 
-    def load(self, epoch):
-        modeldir = self.args.modeldir
-        self.model.load_state_dict(torch.load(Path(modeldir, f"fewshot-model-{epoch}.pkl")))
-        self.opt.load(Path(modeldir, f"fewshot-opt-{epoch}.pkl"))
-        self.scheduler.load(Path(modeldir, f"fewshot-scheduler-{epoch}.pkl"))
+        self.scheduler = scheduler
 
-    def fewshot_training(self,  num_episodes=None):
-        self.learner.train()
+        self.base_eval_dataset = base_eval_dataset
+        self.novel_eval_dataset = novel_eval_dataset
 
-        kquery = self.args.kquery
-        use_cuda = self.args.use_cuda
-        num_episodes = num_episodes if num_episodes is not None else self.args.num_episodes
-        losses, accs = [], []
+        self.on_epoch_end_callback = on_epoch_end_callback
+        self.on_update_callback = on_update_callback
+        self.validate = self.args.do_eval
 
-        for i in range(num_eposides):
-            batch = next(self.dl_train)
-            opt.zero_grad()
-            loss, acc = fewshot_episode(self.learner, batch, self.args.kquery, self.args.use_cuda)
-            loss.backward()
-            opt.update()
+        self.state = TrainingState()
 
-            losses.append(loss.detach().data.numpy())
-            accs.append(acc)
+    def save_checkpoint(self, modeldir=None):
+        """Save the current state of the model
+        """
 
-        return np.mean(losses), np.mean(accs)
+        modeldir = modeldir if modeldir is not None else self.args.modeldir
+        modeldir.mkdir(exist_ok=True)
+        prefix = f"prefix-{self.state.epoch}"
 
-    def fewshot_eval(self, ds, num_episodes, args):
+        torch.save(self.model.state_dict(), Path(modeldir, f"model.pkl"))
+        if self.optimizer is not None:
+            torch.save(self.optimizer, Path(modeldir, "optimizer.pkl"))
+
+        if self.scheduler is not None:
+            torch.save(self.scheduler, Path(modeldir, "scheduler.pkl"))
+
+        state_path = Path(modeldir, f"{prefix}-state.json")
+        with open(state_path, 'w') as fh:
+            fh.write(self.state.tojson())
+
+    def load_checkpoint(self, modeldir):
+
+        self.model.load_state_dict(torch.load(Path(modeldir, f"model.pkl")))
+
+        optimizer_path = Path(modeldir, f"optimizer.pkl")
+        if optimizer_path.isfile():
+            self.optimizer.load(optimizer_path)
+
+        scheduler_path = Path(modeldir, f"scheduler.pkl")
+        if scheduler_path.isfile():
+            self.scheduler.load(optimizer_path)
+
+        state_path = Path(modeldir, f"state.json"), 'w'
+        if state_path.isfile():
+            with open(state_path, 'r') as fh:
+                self.state = TrainingState.fromdict(json.load(fh))
+
+
+    def fewshot_training(self, model_dir=None):
+        """Trains the model using standard fewshot training
+        """
+
+        if model_dir:
+            self.load_checkpoint(model_dir)
+
+        self.model.train()
+
+        dl_train = self.get_train_dataloader()
+        loss = 0
+
+        for epoch in range(self.state.epoch,
+                           self.args.max_episodes * self.args.batch_size // self.args.epoch_length):
+
+            for step in range(self.args.epoch_length * self.args.batch_size):
+                batch = next(dl_train)
+                _loss, res = fewshot_episode(self.model,
+                                            batch,
+                                            self.args.kquery,
+                                            self.args.device)
+
+                loss += _loss
+                if step % self.args.batch_size == 0 and step == self.args.epoch_length - 1:
+                    loss.backward()
+                    self.optimzer.step()
+                    self.optimizer.zero_grad()
+                    loss = 0
+
+                    self.state.global_step += 1
+                    self.state.current_step += 1
+
+                    if self.on_update_cb:
+                        self.on_update_cb(self)
+
+
+            if self.on_epoch_end_cb:
+                self.on_epoch_end_cb(self)
+
+            self.state.epoch += 1
+
+            self.save_checkpoint()
+
+            metrics = self.fewshot_eval()
+
+    def _fewshot_eval(self, ds, num_episodes, args):
         self.learner.eval()
-        dl  = initialize_taskdataset(ds, args.nways, args.kshot, args.num_workers)
 
-        kquery = self.val_args.kquery if self.val_ags is not None else self.args.kquery
+        dl  = initialize_taskdataset(ds, args.nways, args.kshot, args.num_workers)
+        kquery = self.val_args.kquery if self.val_args is not None else self.args.kquery
         use_cuda = self.val_args.use_cuda if self.val_args is not None else self.args.use_cuda
 
-        losses, accs = [], []
+        res = []
         for i in range(num_episodes):
             batch = next(dl)
-            loss, acc = fewshot_episode(self.learner, batch, kquery, use_cuda)
-            losses.append(loss.detach().data.numpy())
-            accs.append(acc)
+            _, _res = fewshot_episode(self.learner, batch, kquery, use_cuda)
+            res.append(_res)
 
-        return np.mean(losses), np.mean(accs)
+        res = {key: [v[key] for v in res] for key in res[0].keys()}
 
-    def full_fewshot_eval(self):
-        res = {}
-        if self.base_val_ds is not None:
-            res['base/loss'], res['base/acc'] = self.fewshot_eval(self.base_val_ds,
-                                                                  self.args.eval_episodes,
-                                                                  self.args)
-        if self.novel_val_ds is not None:
-            res['novel/loss'], res['novel/acc'] =self.fewshot_eval(self.novel_val_ds,
-                                                                  self.args.eval_episodes,
-                                                                  self.args)
-        return res
+        sg = SummaryGroup(self.args.writer)
+        for key, vs in res.items():
+            sg(key, *vs)
+
+        return sg
+
+    def fewshot_eval(self, dataset=None, num_epsiodes=None):
+
+        datasets = []
+        if dataset is not None:
+            datasets.append(dataset)
+        else:
+            if self.base_eval_dataset is not None:
+                datasets.append(self.base_eval_dataset)
+
+            if self.novel_eval_dataset is not None:
+                datasets.append(self.novel_eval_dataset)
+
+        num_episodes = self.args.eval_episodes if num_episodes is None else num_episodes,
+        res = [self.fewshot_eval(ds, num_episodes, self.args) for ds in datasets]
+
+        return *res,
 
 
-def fewshot_loop(ds):
-    writer = SummaryWriter(self.args.logdir)
-    statistics = Statistics(alpha=0.0)
+class PreTrainer(FewshotTrainer):
 
-    for i in range(trainer.args.max_episodes // trainer.args.epoch_episodes):
-        loss, acc = trainer.fewshot_training()
+    def get_train_dataloader(self):
+        args = self.args
+        dl = DataLoader(self.eval_base_dataset,
+                        batch_size=args.batch_size,
+                        num_workers=args.num_workers)
 
-        statistics['fewshot/loss/train'] = loss
-        statistics['fewshot/acc/train'] = acc
+    def get_eval_dataloader(self):
+        args = self.eval_args if self.eval_args is not None else self.args
+        dl = DataLoader(self.eval_base_dataset,
+                        batch_size=args.batch_size,
+                        num_workers=args.num_workers)
+        return dl
 
-        res = self.full_fewshot_eval()
-        for key, v in res.items():
-            statistics["fewshot/" + key] = v
 
-        statistics.write()
+    def prediction_step(self, batch):
+        images, labels = batch
+        images = images.to(self.args.device)
+        labels = labels.to(self.args.device)
+
+        logits = self.model(images)
+        loss = F.cross_entropy(logits, labels)
+        acc = (max(logits)[1] == labels) / len(labels)
+
+        return loss, self.compute_metrics(logits, labels)
+
+
+    def train(self, modeldir=None):
+
+        if modeldir:
+            self.load_checkpoint(modeldir)
+
+        self.model.train()
+
+        dl_train = self.get_train_dataloader()
+        loss = 0
+
+        for epoch in range(self.args.max_peoch):
+            dl_train = self.get_train_dataloader()
+
+            for i, batch in dl_train:
+
+                self.state.global_step += 1
+                self.state.curret_step += 1
+
+                self.optimizer.zero_grad()
+                loss, acc = prediction_step(batch)
+                loss.backward()
+                self.optimizer.step()
+
+                self.on_update_callback(self)
+
+            self.on_epoch_end_callback(self)
+
+            if self.args.do_eval:
+                netrics = self.fewshot_evaluate()
+                {**metrics, **self.evaluate()}
