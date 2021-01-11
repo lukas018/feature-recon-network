@@ -1,83 +1,5 @@
-import os
-from pathlib import Path
-import torch
-from dataclasses import asdict, dataclass
-from torch.utils.data import DataLoader
-
-from .utils import Averager
-from .utils import Statistics
-from .models import resnet12
-from .training_arguments import TrainingArguments, PretrainArguments
-
-import learn2learn2 as l2l
-from torch import functional as F
-
-
-@dataclass
-class TrainerState():
-    epoch: int
-    global_step: int
-
-
-class FewshotTrainer():
-
-    def get_train_dataloader(self,):
-
-        if self.train_dataset is None:
-            raise ValueError("Trainer: training requires a train_dataset.")
-
-        task_dataset = initialize_task_dataset(self.train_dataset)
-        return DataLoader(
-            ds=task_dataset,
-            num_workers=self.args.train_num_workers
-        )
-
-
-    def _get_eval_dataloader(self, ds, args):
-        task_dataset = initialize_task_dataset(ds,
-                                               args.eval_nways,
-                                               args.eval_kshot)
-        return DataLoader(
-            ds=task_dataset,
-            num_workers=args.eval_num_workers
-        )
-
-    def get_novel_eval_dataloader(self):
-        if self.novel_eval_dataset is None:
-            raise ValueError("Trainer: training requires a novel-eval dataset")
-        return self._get_eval_dataloader(self, ds, args)
-
-    def get_base_eval_dataloader(self):
-        if self.base_eval_dataset is None:
-            raise ValueError("Trainer: training requires a novel-eval dataset")
-        return self._get_eval_dataloader(self, ds, args)
-
-    def save_checkpoint(self, model_path):
-        if model_path is not None:
-
-
-
-    def load_checkpoint(self, model_path):
-
-        if Path(model_path, "optimizer.pt").exists():
-            self.optimizer.load_state_dict(
-                torch.load(os.path.join(model_path, "optimizer.pt"), map_location=self.args.device)
-            )
-
-        if Path(model_path, "scheduler.pt").exists():
-            self.scheduler.load_state_dict(
-                torch.load(os.path.join(model_path, "scheduler.pt"))
-            )
-
-    def train(self,):
-
-
 
 class PreTrainer():
-    """PreTrainer
-
-    A trainer wrapper for the pretraining stage
-    """
 
     def __init__(self, model, args, ds_train, ds_val, ds_novel):
         self.model = model
@@ -88,6 +10,7 @@ class PreTrainer():
 
         self.opt = self.arg.optimizer(model.parameters(),
                                       **self.args.optimizer_arguments)
+
         self.scheduler = self.args.scheduler(self.opt,
                                              **self.args.scheduler_arguments)
 
@@ -134,11 +57,13 @@ class PreTrainer():
         self.scheduler.load(Path(modeldir, f"pretrain-scheduler-{epoch}.pkl"))
 
 
-if __name__ == '__main__':
-    ds = l2l.data.MiniImagenet(mode='train', download=True)
-    model = resnet12()
-    train_args = TrainingArguments("~/Downalod")
-    pt_args = PretrainArguments(**asdict(train_args))
+def pretrain_loop(trainer, fs_trainer):
 
-    trainer = PreTrainer(model, pt_args)
-    trainer.train()
+    for epoch in range(trainer.args.max_epochs):
+        trainer.train_epoch()
+        res = fs_trainer.full_fewshot_eval()
+
+        for key, v in res.items():
+            self.stats["pretrain/" + key] = v
+
+        trainer.dump(epoch)

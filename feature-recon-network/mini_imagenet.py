@@ -65,18 +65,26 @@ class Stats():
     def __call__(self, *args):
         self._values.extend([*args])
 
-
 class SummaryGroup():
 
-    def __init__(self, writer):
-        self.writer = writer
+    def __init__(self):
         self.stats = defaultdict(Statistics)
+
+    @classmethod
+    def from_dicts(cls, metrics):
+        metrics = {key: [v[key] for v in metrics] for key in metrics[0].keys()}
+        sg = SummaryGroup()
+        for key, vs in metrics.items():
+            sg(key, *vs)
+        return sg
 
     def __setitem__(self, key, *values):
         self.stats[key](value)
 
-    def write(self, step):
+    def write(self, writer, step, prefix=None):
+
         for key, stats in self.stats.items():
+            key = key if prefix is None else f"{prefix}/{key}"
             writer.add_scalar(key, stats.mean, step)
 
     def __str__(self):

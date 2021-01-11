@@ -8,12 +8,21 @@ from .freshot_utils import fewshot_episode
 
 from .data import initialize_taskdataset, classes_split, split_dataset, SummaryGroup
 
+from typing import List
+
+
 @dataclass_json
 @dataclass
 class TrainingState():
+    """State represetntation for  the training process
+    """
+
     epoch :int = 0
     global_step: int = 0
     current_step: int = 0
+
+    #TODO(Lukas) maybe this should be somewhere else
+    metrics: List[float] = []
 
 
 class FewshotTrainer():
@@ -27,13 +36,22 @@ class FewshotTrainer():
                  train_ds,
                  args,
                  eval_args=None,
-                 optimizer=None,
-                 scheduler=None,
                  base_eval_dataset=None,
                  novel_eval_dataset=None,
+                 optimizer=None,
+                 scheduler=None,
                  on_epoch_end_callback = None,
                  on_update_callback = None
         ):
+        """
+        :param model:
+        :param train_ds: Training dataset
+        :param args:
+        :param eval_args:
+        :param optimizer:
+        :param scheduler:
+        :param
+        """
 
         self.model = model
         self.train_ds = train_ds
@@ -56,15 +74,34 @@ class FewshotTrainer():
 
         self.state = TrainingState()
 
+
+    @classmethod
+    def latest_modeldir(cls, path):
+        dirs = list(filter(lambda x: x.isdir(), Path(path).glob('*')))
+        if len(dirs) == 0:
+            return None
+
+        times = list(map(dirs.stat().st_mtime))
+        i = np.argmax(times)
+        return dirs[i]
+
     def save_checkpoint(self, modeldir=None):
         """Save the current state of the model
         """
 
         modeldir = modeldir if modeldir is not None else self.args.modeldir
         modeldir.mkdir(exist_ok=True)
-        prefix = f"prefix-{self.state.epoch}"
 
-        torch.save(self.model.state_dict(), Path(modeldir, f"model.pkl"))
+        if self.args.checkpoint_namegen is not None:
+            prefix = self.args.checkpoint_namegen(self)
+        else:
+            prefix = f"{self.args.prefix}-{self.state.epoch}"
+
+
+        checkpointdir = Path(modeldir, prefix)
+        checkpointdir.mkdir(exist_ok=True)
+
+        torch.save(self.model.state_dict(), Path(checkpointdir, f"model.pkl"))
         if self.optimizer is not None:
             torch.save(self.optimizer, Path(modeldir, "optimizer.pkl"))
 
@@ -109,14 +146,18 @@ class FewshotTrainer():
                            self.args.max_episodes * self.args.batch_size // self.args.epoch_length):
 
             for step in range(self.args.epoch_length * self.args.batch_size):
+                self.state.current_step += 1
+
                 batch = next(dl_train)
-                _loss, res = fewshot_episode(self.model,
+                _loss, metrics = fewshot_episode(self.model,
                                             batch,
                                             self.args.kquery,
                                             self.args.device)
 
                 loss += _loss
-                if step % self.args.batch_size == 0 and step == self.args.epoch_length - 1:
+                self.state.metrics.append(metrics)
+
+                if step % self.args.batch_size == 0 or step == self.args.epoch_length - 1:
                     loss.backward()
                     self.optimzer.step()
                     self.optimizer.zero_grad()
@@ -125,97 +166,160 @@ class FewshotTrainer():
                     self.state.global_step += 1
                     self.state.current_step += 1
 
-                    if self.on_update_cb:
-                        self.on_update_cb(self)
+                    if self.on_update_callback:
+                        self.on_update_callback(self)
+
+                    if self.scheduler is not None:
+                        scheduler.step()
+
+                    sgs = SummaryGroyp.from_dicts(self.state.metrics[-self.args.batch_size:])
+                    _write_sgs({"train": sgs})
 
 
-            if self.on_epoch_end_cb:
-                self.on_epoch_end_cb(self)
+            if self.on_epoch_end_callback:
+                self.on_epoch_end_callback(self)
 
             self.state.epoch += 1
 
             self.save_checkpoint()
 
-            metrics = self.fewshot_eval()
+            # Save some of the metrics
+            results = self.fewshot_eval()
+            self._write_sgs(results)
 
-    def _fewshot_eval(self, ds, num_episodes, args):
-        self.learner.eval()
+    def _write_sgs(self, sgs):
+        """Writes a dictionary of SummaryGroups to the trainers SummaryWritter
+        """
 
-        dl  = initialize_taskdataset(ds, args.nways, args.kshot, args.num_workers)
-        kquery = self.val_args.kquery if self.val_args is not None else self.args.kquery
-        use_cuda = self.val_args.use_cuda if self.val_args is not None else self.args.use_cuda
+        if self.args.writer is not None:
+            for key, sg in sgs.items():
+                sg.write(self.args.writer, self.state.step, key)
 
-        res = []
-        for i in range(num_episodes):
-            batch = next(dl)
-            _, _res = fewshot_episode(self.learner, batch, kquery, use_cuda)
-            res.append(_res)
 
-        res = {key: [v[key] for v in res] for key in res[0].keys()}
+    def fewshot_eval(self,
+                     datasets: Optional[Dict[str, Dataset]] = None,
+                     num_episodes: int =None):
+        """Performs fewshot evaluation on the given datasets or the evaluation datasets
+        """
 
-        sg = SummaryGroup(self.args.writer)
-        for key, vs in res.items():
-            sg(key, *vs)
+        def _fewshot_eval(ds, num_episodes, args):
+            self.learner.eval()
 
-        return sg
+            # Start a data loader
+            dl  = initialize_taskdataset(ds, args.nways, args.kshot, args.num_workers)
 
-    def fewshot_eval(self, dataset=None, num_epsiodes=None):
+            kquery = self.val_args.kquery if self.val_args is not None else self.args.kquery
+            device = self.val_args.device if self.val_args is not None else self.args.device
 
-        datasets = []
-        if dataset is not None:
-            datasets.append(dataset)
-        else:
+            res = []
+            for i in range(num_episodes):
+                batch = next(dl)
+                _, _res = fewshot_episode(self.learner, batch, kquery, device, self.args.metric_fn)
+                res.append(_res)
+
+            SummaryGroup.from_dicts(metrics)
+            return sg
+
+        if dataset is None:
             if self.base_eval_dataset is not None:
-                datasets.append(self.base_eval_dataset)
+                datasets.update("base", self.base_eval_dataset)
 
             if self.novel_eval_dataset is not None:
-                datasets.append(self.novel_eval_dataset)
+                datasets.update("novel", self.novel_eval_dataset)
 
         num_episodes = self.args.eval_episodes if num_episodes is None else num_episodes,
-        res = [self.fewshot_eval(ds, num_episodes, self.args) for ds in datasets]
-
-        return *res,
-
-
-class PreTrainer(FewshotTrainer):
+        res = {key: self._fewshot_eval(ds, num_episodes, self.args) for key, ds in datasets.items()}
+        return res
 
     def get_train_dataloader(self):
         args = self.args
-        dl = DataLoader(self.eval_base_dataset,
+        dl = initialize_taskdataset(self.train_dataset, self.args.nways, self.args.kways, self.args.num_workers)
+        return dl
+
+
+class PreTrainer(FewshotTrainer):
+    """Trainer wrapper-class for few-shot laerner's pre-training stage
+    """
+
+    def get_train_dataloader(self):
+        args = self.args
+        dl = DataLoader(self.train_dataset,
                         batch_size=args.batch_size,
                         num_workers=args.num_workers)
+        return dl
 
-    def get_eval_dataloader(self):
+    def get_eval_dataloader(self, dataset):
         args = self.eval_args if self.eval_args is not None else self.args
-        dl = DataLoader(self.eval_base_dataset,
+        dataset = self.eval_base_dataset if not dataset else dataset
+        dl = DataLoader(dataset,
                         batch_size=args.batch_size,
                         num_workers=args.num_workers)
         return dl
 
 
-    def prediction_step(self, batch):
-        images, labels = batch
+    def predict(self, images):
+        """Predicts labels of input images
+
+        logits are returned on the device specified in args.device
+
+        :param images: tensor of n images, i.e. with shape [n, h, w, c]
+        :return: Logits
+        """
         images = images.to(self.args.device)
+        return self.model(images)
+
+
+    def _learning_step(self, batch):
+        """RUn a
+        """
+
+        images, labels = batch
         labels = labels.to(self.args.device)
+        logits = self.predict(images)
 
-        logits = self.model(images)
         loss = F.cross_entropy(logits, labels)
-        acc = (max(logits)[1] == labels) / len(labels)
+        metrics = compute_metrics(logits, labels, loss, self.arg.metric_fn)
 
-        return loss, self.compute_metrics(logits, labels)
+        return loss, metrics
 
+    def evaluate(self, dataset):
+        """Evaluate the model
+        """
 
-    def train(self, modeldir=None):
+        self.model.eval()
 
-        if modeldir:
-            self.load_checkpoint(modeldir)
+        # Get the few-shot evaluation
+        fewshot_metrics = self.fewshot_eval()
+
+        # Get the standard classifiation evaluation
+        dl = self.get_eval_dataloader()
+        metrics = []
+        for i, batch in enuemrate(dl):
+            _, _metrics = self._learning_step
+            metrics.append(metrics)
 
         self.model.train()
+
+        # Combine results and return
+        return {**fewshot_metrics, "data": metrics}
+
+
+    def train(self, checkpoint=None):
+        """Runs training process specified by the training arguments
+
+        :param modeldir: modeldir with checkpoints
+        """
+
+        # Load existing checkpoints
+        if checkpoint:
+            self.load_checkpoint(checkpoint)
+
 
         dl_train = self.get_train_dataloader()
         loss = 0
 
         for epoch in range(self.args.max_peoch):
+            self.model.train()
             dl_train = self.get_train_dataloader()
 
             for i, batch in dl_train:
@@ -233,5 +337,5 @@ class PreTrainer(FewshotTrainer):
             self.on_epoch_end_callback(self)
 
             if self.args.do_eval:
-                netrics = self.fewshot_evaluate()
-                {**metrics, **self.evaluate()}
+                sgs = self.evaluate()
+                self._write_sgs(sgs)
