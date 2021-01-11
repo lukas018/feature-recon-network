@@ -4,18 +4,20 @@ from operator import itemgetter
 import torch
 import torch.utils.data as data
 import torch.nn as nn
+from torch.nn.functional import cdist
 import torch.nn.functional as F
 from torch import linalg as LA
 from typing import Optional, Tuple
 
 from functools import partial
 
+
 class FeatureReconNetwork():
     """Feature Reconstruction Network is an implementation
     """
 
     def __init__(self,
-                 learner,
+                 model,
                  num_channels,
                  dimensions,
                  alpha=1,
@@ -24,25 +26,30 @@ class FeatureReconNetwork():
                  ):
         """Feature Reconstruction Network
 
-        :param learner: The feature extractor (any cnn of equivelent)
-        :param num_channels: The number of output channels on the final layer of learner
-        :param dimensions: Height x width of the feature maps outputed by learner
+        :param model: The feature extractor (any cnn of equivelent)
+        :param num_channels: The number of output channels on the final layer of model
+        :param dimensions: Height x width of the feature maps outputed by model
         :param alpha: Initial value for learnable parameter alpha
         :param beta: Initial value for learnable parameter beta
         """
-        self.learner = learner
-        self.alpha = torch.float(alpha)
-        self.beta = torch.float(beta)
+
+        self.model = model
+        self.alpha = torch.tensor(alpha)
+        self.beta = torch.tensor(beta)
+
         self.num_channels = num_channels
         self.dimensions = dimensions
-        self.temperature = torch.float(temperature)
+        self.temperature = torch.tensor(temperature)
         self.class_matrices = None
 
+
+
     def init_pretraining(self, num_classes: int):
-        """Initialize the FRN for pre-training
+        """Initialize the learner for pre-training
 
         :param num_classes: The number of classes in the pretraining dataset
         """
+
         if self.class_matrices is not None or self.class_matrices.shape[0] == num_classes:
             self.class_matrices = torch.randn((num_classes, self.dimensions, self.num_channels))
 
@@ -57,7 +64,7 @@ class FeatureReconNetwork():
         Standard prediction acts standard image classification with logits of n-classes.
         This mode is enabled by default and is meant to be used during the pre-training phase outlined in the original paper.
 
-     
+
         Few-shot prediction is used when support-images are given as arguments.
         Support images are a set of n x k images (n classes, with k examples in each)
         and is used to compute the class representation matrices used for prediction.
@@ -70,7 +77,8 @@ class FeatureReconNetwork():
 
         # Compute and flatten the input features
         # [bsz, r, d]
-        query = learner(query).flatten(1,2)
+        bsz = query.shape[0]
+        query = self.model(query).flatten(1,2)
 
         if support is not None:
 
@@ -79,7 +87,7 @@ class FeatureReconNetwork():
             k = support.shape[1]
 
             # [nway, k*r, d]
-            support = learner(support.flatten(0, 1)).reshape(nway, -1, self.dimensions)
+            support = model(support.flatten(0, 1)).reshape(nway, -1, self.dimensions)
             aux_loss = self._aux_loss(support)
 
             r = torch.exp(self.beta)
@@ -145,18 +153,10 @@ class FeatureReconNetwork():
         return (query @ hat) * r
 
     def _predictions(self, recons, original):
+        """Computes the (normalized) logits from the reconstruction and original features
+        """
+
         n = recons.shape[0]
         dists = cdist(recons.repeat(len(original, 1, 1)),  original.repeat((1, n, 1)), 2)
         dists *= -self.temperature
         return F.softmax(dists, )
-
-
-if __name__ == '__main__':
-    model = models['resnet-12']
-
-    ds = l2l.data.MiniImagenet(mode='train', download=True)
-    train_arguments = TrainArguments()
-    fs_arguments = PretrainArguments(**asdict(train_))
-    trainer = FewshotTrainer(model, ds, fs_arguments)
-
-    trainer.train()

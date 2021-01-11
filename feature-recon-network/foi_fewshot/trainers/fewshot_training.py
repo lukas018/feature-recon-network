@@ -74,6 +74,11 @@ class FewshotTrainer():
 
         self.state = TrainingState()
 
+    def _get_optimizer(self, ):
+        if self.args.optimizer:
+            return self.args.optimizer
+        return torch.optim.SGD(self.model.parameters(), momentum=0.9)
+
 
     @classmethod
     def latest_modeldir(cls, path):
@@ -113,6 +118,8 @@ class FewshotTrainer():
             fh.write(self.state.tojson())
 
     def load_checkpoint(self, modeldir):
+        """Load the trainer state from checkpoint
+        """
 
         self.model.load_state_dict(torch.load(Path(modeldir, f"model.pkl")))
 
@@ -126,7 +133,7 @@ class FewshotTrainer():
 
         state_path = Path(modeldir, f"state.json"), 'w'
         if state_path.isfile():
-            with open(state_path, 'r') as fh:
+            with open(state_path, 'w') as fh:
                 self.state = TrainingState.fromdict(json.load(fh))
 
 
@@ -149,18 +156,17 @@ class FewshotTrainer():
                 self.state.current_step += 1
 
                 batch = next(dl_train)
-                _loss, metrics = fewshot_episode(self.model,
-                                            batch,
-                                            self.args.kquery,
-                                            self.args.device)
+                _loss, metrics = self.fewshot_episode(self.model,
+                                                      batch,
+                                                      self.args.kquery,
+                                                      self.args.device,
+                                                      training=True)
 
                 loss += _loss
                 self.state.metrics.append(metrics)
 
                 if step % self.args.batch_size == 0 or step == self.args.epoch_length - 1:
-                    loss.backward()
-                    self.optimzer.step()
-                    self.optimizer.zero_grad()
+                    self.update_step(loss)
                     loss = 0
 
                     self.state.global_step += 1
@@ -187,6 +193,13 @@ class FewshotTrainer():
             results = self.fewshot_eval()
             self._write_sgs(results)
 
+
+    def update_step(self, loss):
+        loss.backward()
+        self.optimzer.step()
+        self.optimizer.zero_grad()
+
+
     def _write_sgs(self, sgs):
         """Writes a dictionary of SummaryGroups to the trainers SummaryWritter
         """
@@ -196,29 +209,30 @@ class FewshotTrainer():
                 sg.write(self.args.writer, self.state.step, key)
 
 
+    def _fewshot_eval(self, ds, num_episodes, args):
+        self.model.eval()
+
+        # Start a data loader
+        dl  = initialize_taskdataset(ds, args.nways, args.kshot, args.num_workers)
+
+        kquery = self.val_args.kquery if self.val_args is not None else self.args.kquery
+        device = self.val_args.device if self.val_args is not None else self.args.device
+
+        res = []
+        for i in range(num_episodes):
+            batch = next(dl)
+            _, _res = fewshot_episode(self.learner, batch, kquery, device, args.metric_fn)
+            res.append(_res)
+
+        SummaryGroup.from_dicts(metrics)
+        return sg
+
     def fewshot_eval(self,
                      datasets: Optional[Dict[str, Dataset]] = None,
                      num_episodes: int =None):
         """Performs fewshot evaluation on the given datasets or the evaluation datasets
         """
 
-        def _fewshot_eval(ds, num_episodes, args):
-            self.learner.eval()
-
-            # Start a data loader
-            dl  = initialize_taskdataset(ds, args.nways, args.kshot, args.num_workers)
-
-            kquery = self.val_args.kquery if self.val_args is not None else self.args.kquery
-            device = self.val_args.device if self.val_args is not None else self.args.device
-
-            res = []
-            for i in range(num_episodes):
-                batch = next(dl)
-                _, _res = fewshot_episode(self.learner, batch, kquery, device, self.args.metric_fn)
-                res.append(_res)
-
-            SummaryGroup.from_dicts(metrics)
-            return sg
 
         if dataset is None:
             if self.base_eval_dataset is not None:
@@ -237,11 +251,18 @@ class FewshotTrainer():
         return dl
 
 
+    def fewshot_episode(self, batch, *args, **kwargs):
+        return fewshot_episode(self.model, batch, *args, **kwargs)
+
+
 class PreTrainer(FewshotTrainer):
     """Trainer wrapper-class for few-shot laerner's pre-training stage
     """
 
     def get_train_dataloader(self):
+        """
+        """
+
         args = self.args
         dl = DataLoader(self.train_dataset,
                         batch_size=args.batch_size,
@@ -249,6 +270,9 @@ class PreTrainer(FewshotTrainer):
         return dl
 
     def get_eval_dataloader(self, dataset):
+        """
+        """
+
         args = self.eval_args if self.eval_args is not None else self.args
         dataset = self.eval_base_dataset if not dataset else dataset
         dl = DataLoader(dataset,
@@ -269,8 +293,8 @@ class PreTrainer(FewshotTrainer):
         return self.model(images)
 
 
-    def _learning_step(self, batch):
-        """RUn a
+    def forward_step(self, batch):
+        """Perform a single forward step
         """
 
         images, labels = batch
@@ -292,22 +316,23 @@ class PreTrainer(FewshotTrainer):
         fewshot_metrics = self.fewshot_eval()
 
         # Get the standard classifiation evaluation
-        dl = self.get_eval_dataloader()
+        dl = self.get_eval_dataloader(dataset)
+
         metrics = []
         for i, batch in enuemrate(dl):
-            _, _metrics = self._learning_step
+            _, _metrics = self.forward_step(batch)
             metrics.append(metrics)
 
         self.model.train()
 
         # Combine results and return
-        return {**fewshot_metrics, "data": metrics}
+        return {**fewshot_metrics, "standard": metrics}
 
 
     def train(self, checkpoint=None):
         """Runs training process specified by the training arguments
 
-        :param modeldir: modeldir with checkpoints
+        :param checkpoint: modeldir with checkpoints
         """
 
         # Load existing checkpoints

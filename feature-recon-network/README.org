@@ -1,0 +1,9 @@
+#+title: FOI Fewshot read-me
+#+author: Lukas Lundmark
+
+* Introduction
+This is a small framework for metric-based fewshot classification built on top of learn2learn
+
+Includes implementations of:
+- [[https://arxiv.org/pdf/2003.04390.pdf][New meta-baseline]]
+- Feature Reconstruction Networks
