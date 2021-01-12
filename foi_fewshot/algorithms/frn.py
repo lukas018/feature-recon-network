@@ -22,6 +22,7 @@ class FeatureReconNetwork():
                  dimensions,
                  alpha=1,
                  beta=1,
+                 scale_factor=1,
                  temperature=1
                  ):
         """Feature Reconstruction Network
@@ -40,8 +41,10 @@ class FeatureReconNetwork():
         self.num_channels = num_channels
         self.dimensions = dimensions
         self.temperature = torch.tensor(temperature)
+
         self.class_matrices = None
         self.cached_support = None
+        self.scale_factor = scale_factor
 
 
 
@@ -58,10 +61,9 @@ class FeatureReconNetwork():
     def compute_support(self, support: nn.Torch, cache:bool=False) -> torch.Tensor:
         # Do few-shot prediction
         nway = support.shape[0]
-        k = support.shape[1]
 
         # [nway, k*r, d]
-        support = model(support.flatten(0, 1)).reshape(nway, -1, self.dimensions)
+        support = model(support.flatten(0, 1)).reshape(nway, -1, self.dimensions) * self.scale_factor
 
         if cache:
             self.cached_support = support
@@ -92,7 +94,7 @@ class FeatureReconNetwork():
         # Compute and flatten the input features
         # [bsz, r, d]
         bsz = query.shape[0]
-        query = self.model(query).flatten(1,2)
+        query = self.model(query).flatten(1,2) * self.scale_factor
 
         if support is not None or self.cached_support:
             if suppport is not None:
@@ -102,10 +104,11 @@ class FeatureReconNetwork():
 
             nway = support.shape[0]
 
-            aux_loss = self._aux_loss(support)
+
             r = torch.exp(self.beta)
             lam = (self.num_channels / (nway * self.dimensions) * torch.exp(self.alpha))
             recons = self._reconstruct(query, support, r, lam)
+            aux_loss = self._aux_loss(recons.reshape(bsz, nway, self.dimension, self.channels))
             logits = (self._predictions(recons, query), aux_loss)
         else:
             # Standard predictions
@@ -113,24 +116,6 @@ class FeatureReconNetwork():
             logits = self._predictions(recons, query)
 
         return logits
-
-
-    def _aux_loss(self, class_matrices) -> nn.Torch:
-        """ Compute the auxiluary loss
-
-        :param class_matrices: Class matrices
-        :output: loss
-        """
-
-        # Row normalize
-        class_matrices = class_matrices / LA.norm(class_matrices, 2)
-        loss = 0
-        for i in range(len(class_matrices)):
-            for j in range(len(class_matrices)):
-                if i == j:
-                    continue
-                loss += LA.norm(class_matrices[i, :] @ class_matrices[j,:].t(), 2)
-        return loss
 
     def _reconstruct(self,
                      query: torch.Tensor,
@@ -151,8 +136,8 @@ class FeatureReconNetwork():
         dimensions = query.shape[1]
 
         # Flatten everything
-        query = query.flatten((0, 1, 2))
-        support = support.flatten((1, 2))
+        query = query.flatten(0, 1, 2)
+        support = support.flatten(1, 2)
 
         reg = support.shape[1] / support.shape[2]
         st = support.permutate(0, 2, 1)
@@ -168,6 +153,27 @@ class FeatureReconNetwork():
         """
 
         n = recons.shape[0]
-        dists = cdist(recons.repeat(len(original, 1, 1)),  original.repeat((1, n, 1)), 2)
+        original = original.unsqueeze(1)
+        dists = cdist(recons,  original.repeat((1, n, 1)), 2)
         dists *= -self.temperature
         return F.softmax(dists, )
+
+
+    def _aux_loss(self, recons):
+        """Auxiluary loss
+
+        :param recons: [bsz, nway, dimension, channels]
+        """
+
+        def _loss(recons):
+            recons_t = recons.permutate(0, 2, 1)
+            recons = recons.unsqueeze(1)
+            res = recons @ recons_t
+            nway = res.shape[0]
+            mask = (~torch.eye(nway, dtype=bool)).reshape((nway, nway, 1, 1))
+
+            res *= mask
+            loss = LA.norm(res.flatten(0, 2), 2).sum()
+
+        loss = torch.stack([_loss(r) for r in res]).mean()
+        return loss
