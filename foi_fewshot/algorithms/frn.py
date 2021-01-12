@@ -13,7 +13,7 @@ from functools import partial
 
 
 class FeatureReconNetwork():
-    """Feature Reconstruction Network is an implementation
+    """Feature Reconstruction Network
     """
 
     def __init__(self,
@@ -41,6 +41,7 @@ class FeatureReconNetwork():
         self.dimensions = dimensions
         self.temperature = torch.tensor(temperature)
         self.class_matrices = None
+        self.cached_support = None
 
 
 
@@ -54,6 +55,19 @@ class FeatureReconNetwork():
             self.class_matrices = torch.randn((num_classes, self.dimensions, self.num_channels))
 
 
+    def compute_support(self, support: nn.Torch, cache:bool=False) -> torch.Tensor:
+        # Do few-shot prediction
+        nway = support.shape[0]
+        k = support.shape[1]
+
+        # [nway, k*r, d]
+        support = model(support.flatten(0, 1)).reshape(nway, -1, self.dimensions)
+
+        if cache:
+            self.cached_support = support
+
+        return support
+
     def forward(self,
                 query: nn.Torch,
                 support: Optional[nn.Torch]=None
@@ -64,8 +78,8 @@ class FeatureReconNetwork():
         Standard prediction acts standard image classification with logits of n-classes.
         This mode is enabled by default and is meant to be used during the pre-training phase outlined in the original paper.
 
-
-        Few-shot prediction is used when support-images are given as arguments.
+        Few-shot prediction is used when support-images are given as arguments or compute_support
+        has been called with cache set to True.
         Support images are a set of n x k images (n classes, with k examples in each)
         and is used to compute the class representation matrices used for prediction.
 
@@ -80,21 +94,18 @@ class FeatureReconNetwork():
         bsz = query.shape[0]
         query = self.model(query).flatten(1,2)
 
-        if support is not None:
+        if support is not None or self.cached_support:
+            if suppport is not None:
+                support = self.compute_support(support)
+            elif self.cached_support is not None:
+                support = self.cached_support
 
-            # Do few-shot prediction
             nway = support.shape[0]
-            k = support.shape[1]
 
-            # [nway, k*r, d]
-            support = model(support.flatten(0, 1)).reshape(nway, -1, self.dimensions)
             aux_loss = self._aux_loss(support)
-
             r = torch.exp(self.beta)
             lam = (self.num_channels / (nway * self.dimensions) * torch.exp(self.alpha))
-
             recons = self._reconstruct(query, support, r, lam)
-
             logits = (self._predictions(recons, query), aux_loss)
         else:
             # Standard predictions
@@ -122,10 +133,10 @@ class FeatureReconNetwork():
         return loss
 
     def _reconstruct(self,
-                     query,
-                     support,
-                     r,
-                     lam):
+                     query: torch.Tensor,
+                     support: torch.Tensor,
+                     r: torch.Tensor,
+                     lam: torch.Tensor) -> torch.Tensor:
 
         """ Compute reconstructions according to paper
         :param query: [bsz, r, d]
