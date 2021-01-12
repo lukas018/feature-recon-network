@@ -12,19 +12,19 @@ from typing import Optional, Tuple
 from functools import partial
 
 
-class FeatureReconNetwork():
-    """Feature Reconstruction Network
-    """
+class FeatureReconNetwork:
+    """Feature Reconstruction Network"""
 
-    def __init__(self,
-                 model,
-                 num_channels,
-                 dimensions,
-                 alpha=1,
-                 beta=1,
-                 scale_factor=1,
-                 temperature=1
-                 ):
+    def __init__(
+        self,
+        model,
+        num_channels,
+        dimensions,
+        alpha=1,
+        beta=1,
+        scale_factor=1,
+        temperature=1,
+    ):
         """Feature Reconstruction Network
 
         :param model: The feature extractor (any cnn of equivelent)
@@ -46,33 +46,37 @@ class FeatureReconNetwork():
         self.cached_support = None
         self.scale_factor = scale_factor
 
-
-
     def init_pretraining(self, num_classes: int):
         """Initialize the learner for pre-training
 
         :param num_classes: The number of classes in the pretraining dataset
         """
 
-        if self.class_matrices is not None or self.class_matrices.shape[0] == num_classes:
-            self.class_matrices = torch.randn((num_classes, self.dimensions, self.num_channels))
+        if (
+            self.class_matrices is not None
+            or self.class_matrices.shape[0] == num_classes
+        ):
+            self.class_matrices = torch.randn(
+                (num_classes, self.dimensions, self.num_channels)
+            )
 
-
-    def compute_support(self, support: nn.Torch, cache:bool=False) -> torch.Tensor:
+    def compute_support(self, support: nn.Torch, cache: bool = False) -> torch.Tensor:
         # Do few-shot prediction
         nway = support.shape[0]
 
         # [nway, k*r, d]
-        support = model(support.flatten(0, 1)).reshape(nway, -1, self.dimensions) * self.scale_factor
+        support = (
+            model(support.flatten(0, 1)).reshape(nway, -1, self.dimensions)
+            * self.scale_factor
+        )
 
         if cache:
             self.cached_support = support
 
         return support
 
-    def forward(self,
-                query: nn.Torch,
-                support: Optional[nn.Torch]=None
+    def forward(
+        self, query: nn.Torch, support: Optional[nn.Torch] = None
     ) -> Tuple[nn.Torch, Tuple[nn.Torch, nn.Torch]]:
         """Predict labels using FRN.
 
@@ -94,7 +98,7 @@ class FeatureReconNetwork():
         # Compute and flatten the input features
         # [bsz, r, d]
         bsz = query.shape[0]
-        query = self.model(query).flatten(1,2) * self.scale_factor
+        query = self.model(query).flatten(1, 2) * self.scale_factor
 
         if support is not None or self.cached_support:
             if support is not None:
@@ -104,11 +108,12 @@ class FeatureReconNetwork():
 
             nway = support.shape[0]
 
-
             r = torch.exp(self.beta)
-            lam = (self.num_channels / (nway * self.dimensions) * torch.exp(self.alpha))
+            lam = self.num_channels / (nway * self.dimensions) * torch.exp(self.alpha)
             recons = self._reconstruct(query, support, r, lam)
-            aux_loss = self._aux_loss(recons.reshape(bsz, nway, self.dimension, self.channels))
+            aux_loss = self._aux_loss(
+                recons.reshape(bsz, nway, self.dimension, self.channels)
+            )
             logits = (self._predictions(recons, query), aux_loss)
         else:
             # Standard predictions
@@ -117,13 +122,15 @@ class FeatureReconNetwork():
 
         return logits
 
-    def _reconstruct(self,
-                     query: torch.Tensor,
-                     support: torch.Tensor,
-                     r: torch.Tensor,
-                     lam: torch.Tensor) -> torch.Tensor:
+    def _reconstruct(
+        self,
+        query: torch.Tensor,
+        support: torch.Tensor,
+        r: torch.Tensor,
+        lam: torch.Tensor,
+    ) -> torch.Tensor:
 
-        """ Compute reconstructions according to paper
+        """Compute reconstructions according to paper
         :param query: [bsz, r, d]
         :param support: [way, support_shot* r, d]
         :param r: rho
@@ -142,22 +149,22 @@ class FeatureReconNetwork():
         reg = support.shape[1] / support.shape[2]
         st = support.permutate(0, 2, 1)
         xtx = st @ support
-        m_inv = (xtx + torch.eye(xtx.shape[-1]).unsqueeze(0) * (reg * lam) ).inverse()
+        m_inv = (xtx + torch.eye(xtx.shape[-1]).unsqueeze(0) * (reg * lam)).inverse()
         hat = m_inv @ xtx
 
         # Reshape to [bsz, nway, r*d]
         return (query @ hat) * r
 
     def _predictions(self, recons, original):
-        """Computes the (normalized) logits from the reconstruction and original features
-        """
+        """Computes the (normalized) logits from the reconstruction and original features"""
 
         n = recons.shape[0]
         original = original.unsqueeze(1)
-        dists = cdist(recons,  original.repeat((1, n, 1)), 2)
+        dists = cdist(recons, original.repeat((1, n, 1)), 2)
         dists *= -self.temperature
-        return F.softmax(dists, )
-
+        return F.softmax(
+            dists,
+        )
 
     def _aux_loss(self, recons):
         """Auxiluary loss

@@ -4,7 +4,7 @@ import copy
 from collections import defaultdict
 
 
-class Averager():
+class Averager:
     def __init__(self, alpha):
         self.alpha = alpha
         self.v = None
@@ -12,7 +12,7 @@ class Averager():
 
     def _update(self, v):
         if self.count > 0:
-            self.v = (self.alpha * v) + ((1. *self.alpha) * self.v)
+            self.v = (self.alpha * v) + ((1.0 * self.alpha) * self.v)
         else:
             self.v = v
 
@@ -22,8 +22,7 @@ class Averager():
         return self.v
 
 
-class Stats():
-
+class Stats:
     def __init__(self, moving_avg_window=None):
         self._values = []
         self.moving_avg_window = moving_avg_window
@@ -35,7 +34,7 @@ class Stats():
     @property
     def mean(self):
         if self.moving_avg_window is not None:
-            return np.mean(self.array[-self.moving_avg_window:])
+            return np.mean(self.array[-self.moving_avg_window :])
         else:
             return np.mean(self.array)
 
@@ -49,14 +48,14 @@ class Stats():
 
     def conf_int(self, c):
         a = self.array
-        interval = st.t.interval(c, len(a)-1, loc=np.mean(a), scale=st.sem(a))
+        interval = st.t.interval(c, len(a) - 1, loc=np.mean(a), scale=st.sem(a))
         return interval
 
     def __call__(self, *args):
         self._values.extend([*args])
 
-class SummaryGroup():
 
+class SummaryGroup:
     def __init__(self):
         self.stats = defaultdict(Stats)
 
@@ -78,10 +77,11 @@ class SummaryGroup():
             writer.add_scalar(key, stats.mean, step)
 
     def __str__(self):
-        strs = [f"{key}: {stat.mean:.3f} ± {stat.std:.3f}"
-                          for key, stat
-                          in self.stats.items()]
-        return '\n'.join(strs)
+        strs = [
+            f"{key}: {stat.mean:.3f} ± {stat.std:.3f}"
+            for key, stat in self.stats.items()
+        ]
+        return "\n".join(strs)
 
     def join(self, sg):
         new_sg = SummaryGroup(self.writer)

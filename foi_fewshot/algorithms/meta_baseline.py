@@ -3,16 +3,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-class MetaBaseline():
+class MetaBaseline:
     """Implementation of ~A New  Meta-Maseline~ : https://arxiv.org/pdf/2003.04390.pdf
 
     A metric based fewshot learner which uses pre-training
     """
 
-    def __init__(self,
-                 model,
-                 temperature=1,
-                 dist_fn: Callable = F.cosine_distance):
+    def __init__(self, model, temperature=1, dist_fn: Callable = F.cosine_distance):
 
         self.model = model
         self.temperature = torch.tensor(temperature)
@@ -28,7 +25,6 @@ class MetaBaseline():
 
         if self.class_matrix is not None or self.class_matrix.shape[1] == num_classes:
             self.class_matrix = nn.Linear(dimensions, num_classes)
-
 
     def compute_centroids(self, support, cache=False):
         """Computes the centroids of the given support imgages
@@ -51,9 +47,8 @@ class MetaBaseline():
 
         return centroids
 
-    def forward(self,
-                query: nn.Torch,
-                support: Optional[nn.Torch]=None
+    def forward(
+        self, query: nn.Torch, support: Optional[nn.Torch] = None
     ) -> Tuple[nn.Torch, Tuple[nn.Torch, nn.Torch]]:
         """Predict labels using FRN.
 
@@ -90,14 +85,16 @@ class MetaBaseline():
             centroids = centroids.unflatten(1).repeat((1, bsz, 1))
 
             logits = self.dist_fn(features, centroids)
-            logits = F.softmax(self.temperature*logits)
+            logits = F.softmax(self.temperature * logits)
 
         else:
 
             # Do a normal forward pass
             features = self.model(query)
             if self.class_matrix is None:
-                raise ValueError(f"Final classification layer was not initialized, please run init_pretraining before calling")
+                raise ValueError(
+                    f"Final classification layer was not initialized, please run init_pretraining before calling"
+                )
 
             logits = self.class_matrix(features)
             logits = F.softmax(logits)

@@ -9,43 +9,50 @@ from torch.utils.data import DataLoader
 import numpy as np
 from pathlib import Path
 
-from ..utils import fewshot_episode, initialize_taskdataset, classes_split, split_dataset, SummaryGroup, compute_metrics
+from ..utils import (
+    fewshot_episode,
+    initialize_taskdataset,
+    classes_split,
+    split_dataset,
+    SummaryGroup,
+    compute_metrics,
+)
 
 from typing import List
 
 
 @dataclass_json
 @dataclass
-class TrainingState():
-    """State represetntation for  the training process
-    """
+class TrainingState:
+    """State represetntation for  the training process"""
 
-    epoch :int = 0
+    epoch: int = 0
     global_step: int = 0
     current_step: int = 0
 
-    #TODO(Lukas) maybe this should be somewhere else
+    # TODO(Lukas) maybe this should be somewhere else
     metrics: List[float] = []
 
 
-class FewshotTrainer():
+class FewshotTrainer:
     """FewshotTrainer
 
     General trainer wrapper for few-shot trainers
     """
 
-    def __init__(self,
-                 model,
-                 train_ds,
-                 args,
-                 eval_args=None,
-                 base_eval_dataset=None,
-                 novel_eval_dataset=None,
-                 optimizer=None,
-                 scheduler=None,
-                 on_epoch_end_callback = None,
-                 on_update_callback = None
-        ):
+    def __init__(
+        self,
+        model,
+        train_ds,
+        args,
+        eval_args=None,
+        base_eval_dataset=None,
+        novel_eval_dataset=None,
+        optimizer=None,
+        scheduler=None,
+        on_epoch_end_callback=None,
+        on_update_callback=None,
+    ):
         """
         :param model:
         :param train_ds: Training dataset
@@ -77,15 +84,16 @@ class FewshotTrainer():
 
         self.state = TrainingState()
 
-    def _get_optimizer(self, ):
+    def _get_optimizer(
+        self,
+    ):
         if self.args.optimizer:
             return self.args.optimizer
         return torch.optim.SGD(self.model.parameters(), momentum=0.9)
 
-
     @classmethod
     def latest_modeldir(cls, path):
-        dirs = list(filter(lambda x: x.isdir(), Path(path).glob('*')))
+        dirs = list(filter(lambda x: x.isdir(), Path(path).glob("*")))
         if len(dirs) == 0:
             return None
 
@@ -94,8 +102,7 @@ class FewshotTrainer():
         return dirs[i]
 
     def save_checkpoint(self, modeldir=None):
-        """Save the current state of the model
-        """
+        """Save the current state of the model"""
 
         modeldir = modeldir if modeldir is not None else self.args.modeldir
         modeldir.mkdir(exist_ok=True)
@@ -104,7 +111,6 @@ class FewshotTrainer():
             prefix = self.args.checkpoint_namegen(self)
         else:
             prefix = f"{self.args.prefix}-{self.state.epoch}"
-
 
         checkpointdir = Path(modeldir, prefix)
         checkpointdir.mkdir(exist_ok=True)
@@ -117,12 +123,11 @@ class FewshotTrainer():
             torch.save(self.scheduler, Path(modeldir, "scheduler.pkl"))
 
         state_path = Path(modeldir, f"{prefix}-state.json")
-        with open(state_path, 'w') as fh:
+        with open(state_path, "w") as fh:
             fh.write(self.state.tojson())
 
     def load_checkpoint(self, modeldir):
-        """Load the trainer state from checkpoint
-        """
+        """Load the trainer state from checkpoint"""
 
         self.model.load_state_dict(torch.load(Path(modeldir, f"model.pkl")))
 
@@ -134,15 +139,13 @@ class FewshotTrainer():
         if scheduler_path.isfile():
             self.scheduler.load(optimizer_path)
 
-        state_path = Path(modeldir, f"state.json"), 'w'
+        state_path = Path(modeldir, f"state.json"), "w"
         if state_path.isfile():
-            with open(state_path, 'w') as fh:
+            with open(state_path, "w") as fh:
                 self.state = TrainingState.fromdict(json.load(fh))
 
-
     def fewshot_training(self, model_dir=None):
-        """Trains the model using standard fewshot training
-        """
+        """Trains the model using standard fewshot training"""
 
         if model_dir:
             self.load_checkpoint(model_dir)
@@ -152,23 +155,26 @@ class FewshotTrainer():
         dl_train = self.get_train_dataloader()
         loss = 0
 
-        for epoch in range(self.state.epoch,
-                           self.args.max_episodes * self.args.batch_size // self.args.epoch_length):
+        for epoch in range(
+            self.state.epoch,
+            self.args.max_episodes * self.args.batch_size // self.args.epoch_length,
+        ):
 
             for step in range(self.args.epoch_length * self.args.batch_size):
                 self.state.current_step += 1
 
                 batch = next(dl_train)
-                _loss, metrics = self.fewshot_episode(self.model,
-                                                      batch,
-                                                      self.args.kquery,
-                                                      self.args.device,
-                                                      training=True)
+                _loss, metrics = self.fewshot_episode(
+                    self.model, batch, self.args.kquery, self.args.device, training=True
+                )
 
                 loss += _loss
                 self.state.metrics.append(metrics)
 
-                if step % self.args.batch_size == 0 or step == self.args.epoch_length - 1:
+                if (
+                    step % self.args.batch_size == 0
+                    or step == self.args.epoch_length - 1
+                ):
                     self.update_step(loss)
                     loss = 0
 
@@ -181,9 +187,10 @@ class FewshotTrainer():
                     if self.scheduler is not None:
                         scheduler.step()
 
-                    sgs = SummaryGroup.from_dicts(self.state.metrics[-self.args.batch_size:])
+                    sgs = SummaryGroup.from_dicts(
+                        self.state.metrics[-self.args.batch_size :]
+                    )
                     _write_sgs({"train": sgs})
-
 
             if self.on_epoch_end_callback:
                 self.on_epoch_end_callback(self)
@@ -196,27 +203,23 @@ class FewshotTrainer():
             results = self.fewshot_eval()
             self._write_sgs(results)
 
-
     def update_step(self, loss):
         loss.backward()
         self.optimzer.step()
         self.optimizer.zero_grad()
 
-
     def _write_sgs(self, sgs):
-        """Writes a dictionary of SummaryGroups to the trainers SummaryWritter
-        """
+        """Writes a dictionary of SummaryGroups to the trainers SummaryWritter"""
 
         if self.args.writer is not None:
             for key, sg in sgs.items():
                 sg.write(self.args.writer, self.state.step, key)
 
-
     def _fewshot_eval(self, ds, num_episodes, args):
         self.model.eval()
 
         # Start a data loader
-        dl  = initialize_taskdataset(ds, args.nways, args.kshot, args.num_workers)
+        dl = initialize_taskdataset(ds, args.nways, args.kshot, args.num_workers)
 
         kquery = self.val_args.kquery if self.val_args is not None else self.args.kquery
         device = self.val_args.device if self.val_args is not None else self.args.device
@@ -224,18 +227,18 @@ class FewshotTrainer():
         metrics = []
         for i in range(num_episodes):
             batch = next(dl)
-            _, _res = fewshot_episode(self.learner, batch, kquery, device, args.metric_fn)
+            _, _res = fewshot_episode(
+                self.learner, batch, kquery, device, args.metric_fn
+            )
             metrics.append(_res)
 
         sg = SummaryGroup.from_dicts(metrics)
         return sg
 
-    def fewshot_eval(self,
-                     datasets: Optional[Dict[str, Dataset]] = None,
-                     num_episodes: int =None):
-        """Performs fewshot evaluation on the given datasets or the evaluation datasets
-        """
-
+    def fewshot_eval(
+        self, datasets: Optional[Dict[str, Dataset]] = None, num_episodes: int = None
+    ):
+        """Performs fewshot evaluation on the given datasets or the evaluation datasets"""
 
         if datasets is None:
             if self.base_eval_dataset is not None:
@@ -244,45 +247,47 @@ class FewshotTrainer():
             if self.novel_eval_dataset is not None:
                 datasets.update("novel", self.novel_eval_dataset)
 
-        num_episodes = self.args.eval_episodes if num_episodes is None else num_episodes,
-        res = {key: self._fewshot_eval(ds, num_episodes, self.args) for key, ds in datasets.items()}
+        num_episodes = (
+            self.args.eval_episodes if num_episodes is None else num_episodes,
+        )
+        res = {
+            key: self._fewshot_eval(ds, num_episodes, self.args)
+            for key, ds in datasets.items()
+        }
         return res
 
     def get_train_dataloader(self):
         args = self.args
-        dl = initialize_taskdataset(self.train_dataset, self.args.nways, self.args.kways, self.args.num_workers)
+        dl = initialize_taskdataset(
+            self.train_dataset, self.args.nways, self.args.kways, self.args.num_workers
+        )
         return dl
-
 
     def fewshot_episode(self, batch, *args, **kwargs):
         return fewshot_episode(self.model, batch, *args, **kwargs)
 
 
 class PreTrainer(FewshotTrainer):
-    """Trainer wrapper-class for few-shot laerner's pre-training stage
-    """
+    """Trainer wrapper-class for few-shot laerner's pre-training stage"""
 
     def get_train_dataloader(self):
-        """
-        """
+        """"""
 
         args = self.args
-        dl = DataLoader(self.train_dataset,
-                        batch_size=args.batch_size,
-                        num_workers=args.num_workers)
+        dl = DataLoader(
+            self.train_dataset, batch_size=args.batch_size, num_workers=args.num_workers
+        )
         return dl
 
     def get_eval_dataloader(self, dataset):
-        """
-        """
+        """"""
 
         args = self.eval_args if self.eval_args is not None else self.args
         dataset = self.eval_base_dataset if not dataset else dataset
-        dl = DataLoader(dataset,
-                        batch_size=args.batch_size,
-                        num_workers=args.num_workers)
+        dl = DataLoader(
+            dataset, batch_size=args.batch_size, num_workers=args.num_workers
+        )
         return dl
-
 
     def predict(self, images):
         """Predicts labels of input images
@@ -295,10 +300,8 @@ class PreTrainer(FewshotTrainer):
         images = images.to(self.args.device)
         return self.model(images)
 
-
     def forward_step(self, batch):
-        """Perform a single forward step
-        """
+        """Perform a single forward step"""
 
         images, labels = batch
         labels = labels.to(self.args.device)
@@ -310,8 +313,7 @@ class PreTrainer(FewshotTrainer):
         return loss, metrics
 
     def evaluate(self, dataset):
-        """Evaluate the model
-        """
+        """Evaluate the model"""
 
         self.model.eval()
 
@@ -331,7 +333,6 @@ class PreTrainer(FewshotTrainer):
         # Combine results and return
         return {**fewshot_metrics, "standard": metrics}
 
-
     def train(self, checkpoint=None):
         """Runs training process specified by the training arguments
 
@@ -341,7 +342,6 @@ class PreTrainer(FewshotTrainer):
         # Load existing checkpoints
         if checkpoint:
             self.load_checkpoint(checkpoint)
-
 
         dl_train = self.get_train_dataloader()
         loss = 0

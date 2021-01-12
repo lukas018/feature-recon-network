@@ -19,13 +19,23 @@ class TrainingArguments:
     max_epochs: int = field(default=100, metadata={"help": ""})
 
     seed: int = field(default=42)
-    modeldir_prefix: str = field("training-model", metadata={'help': ""})
+    modeldir_prefix: str = field("training-model", metadata={"help": ""})
 
     optimizer: Optional[torch.optim] = field(default=None)
     scheduler: Optional[torch.optim.lr_scheduler.Scheduler] = field(default=None)
 
-    checkpoint_namegen: Optional[Callable] = field(None, metadata={"help": "Callabe which takes the current trainer as input and outputs a suitable prefix for the checkpoint model"})
-    metric_fn: Optional[Callable] = field(None, metadata={"help": "Callable which takes logits and labels and outputs a dict of numeral metrics"})
+    checkpoint_namegen: Optional[Callable] = field(
+        None,
+        metadata={
+            "help": "Callabe which takes the current trainer as input and outputs a suitable prefix for the checkpoint model"
+        },
+    )
+    metric_fn: Optional[Callable] = field(
+        None,
+        metadata={
+            "help": "Callable which takes logits and labels and outputs a dict of numeral metrics"
+        },
+    )
 
 
 @dataclass

@@ -7,18 +7,22 @@ import torch
 import torch.nn as nn
 from .random_transforms import RandomNWays, RandomKShot
 
-def maml_episode(learner,
-                 batch,
-                 update_steps,
-                 kquery,
-                 device,
-                 loss_fn=F.cross_entropy,
-                 metric_fn=None):
-    """MAML fewshot episode where the learner preforms *n=update_steps* gradient steps
-    """
+
+def maml_episode(
+    learner,
+    batch,
+    update_steps,
+    kquery,
+    device,
+    loss_fn=F.cross_entropy,
+    metric_fn=None,
+):
+    """MAML fewshot episode where the learner preforms *n=update_steps* gradient steps"""
 
     # Separate data into support/query sets
-    query_data, query_labels, support_data, support_labels = _prepare_batch(batch, device, kquery)
+    query_data, query_labels, support_data, support_labels = _prepare_batch(
+        batch, device, kquery
+    )
 
     # We don't need to keep track of the nway, kshot setup here
     support_data = support_data.flatten(0, 1)
@@ -38,19 +42,22 @@ def maml_episode(learner,
     return loss, res
 
 
-def reptile_episode(learner,
-                    batch,
-                    update_steps,
-                    kquery,
-                    optimizer,
-                    device,
-                    loss_fn=F.cross_entropy,
-                    metric_fn=None):
-    """MAML fewshot episode where the learner preforms *n=update_steps* gradient steps
-    """
+def reptile_episode(
+    learner,
+    batch,
+    update_steps,
+    kquery,
+    optimizer,
+    device,
+    loss_fn=F.cross_entropy,
+    metric_fn=None,
+):
+    """MAML fewshot episode where the learner preforms *n=update_steps* gradient steps"""
 
     # Separate data into support/query sets
-    query_data, query_labels, support_data, support_labels = _prepare_batch(batch, device, kquery)
+    query_data, query_labels, support_data, support_labels = _prepare_batch(
+        batch, device, kquery
+    )
 
     # We don't need to keep track of the nway, kshot setup here
     support_data = support_data.flatten(0, 1)
@@ -70,7 +77,9 @@ def reptile_episode(learner,
     return loss, res
 
 
-def fewshot_episode(learner, batch, kquery, device, metric_fn=None, loss_fn=F.cross_entropy, **kwargs):
+def fewshot_episode(
+    learner, batch, kquery, device, metric_fn=None, loss_fn=F.cross_entropy, **kwargs
+):
     """Perform a single fewshot epoch
 
     :param learner: The fewshot learner
@@ -80,7 +89,9 @@ def fewshot_episode(learner, batch, kquery, device, metric_fn=None, loss_fn=F.cr
     """
 
     # Separate data into support and query sets
-    query_data, query_labels, support_data, support_labels = _prepare_batch(batch, device, kquery)
+    query_data, query_labels, support_data, support_labels = _prepare_batch(
+        batch, device, kquery
+    )
 
     # TODO(Lukas) Currently we assume that support is ordered, this should be changed
     logits = learner(query_data, support_data)
@@ -97,17 +108,16 @@ def fewshot_episode(learner, batch, kquery, device, metric_fn=None, loss_fn=F.cr
 
 
 def _split_fewshot_batch(images, labels, nways, total_k, query_k):
-    """Create
-    """
+    """Create"""
 
     # Separate data into support and query sets
     query_indices = np.zeros((nways, total_k), dtype=bool)
-    query_indices[(np.arange(nway*k_total) % total_k) >= (total_k - query_k)] = True
+    query_indices[(np.arange(nway * k_total) % total_k) >= (total_k - query_k)] = True
     query_indices = torch.from_numpy(query_indices)
     support_indices = torch.from_numpy(~query_indices)
 
     query_data, query_labels = images[query_indices], labels[query_indices]
-    support_data,  support_labels = images[support_indices], labels[support_indices]
+    support_data, support_labels = images[support_indices], labels[support_indices]
 
     # We reshape here to keep track of the number of nways, kshots
     support_data = support_data.reshape((nways, total_k - query_k, images.shape[1:]))
@@ -144,12 +154,12 @@ def compute_metrics(logits, labels, loss=None, metric_fn=None):
         labels = labels.detach().data.numpy()
 
     acc = np.sum(logits == labels) / len(logits)
-    metrics = {'acc': acc}
+    metrics = {"acc": acc}
 
     if loss is not None:
         if isinstance(logits, nn.Tensor):
             loss = loss.detach().data.numpy()
-        metrics.update('loss', loss)
+        metrics.update("loss", loss)
 
     if metric_fn is not None:
         metrcs = {**metrics, **metric_fn(logits, labels)}
@@ -171,7 +181,7 @@ def initialize_taskdataset(ds, nways, kways, num_workers):
         RandomKshot(ds, nways) if isinstance(kways, tuple) else Kshot(ds, kways),
         LoadImage(ds),
         ConsecutiveLabels(ds),
-        RemapLabels(ds)
+        RemapLabels(ds),
     ]
     meta_ds = MetaDataset(ds)
     task_ds = TaskDataset(ds, task_transforms)
@@ -179,8 +189,7 @@ def initialize_taskdataset(ds, nways, kways, num_workers):
 
 
 def classes_split(items, frac):
-    """Helper function for spliting items while retaining class balance
-    """
+    """Helper function for spliting items while retaining class balance"""
 
     def groupby(items, key):
         group = defaultdict()
@@ -192,7 +201,7 @@ def classes_split(items, frac):
 
     def sampler(values):
         random.shuffle(values)
-        pivot = int(len(values)*frac)
+        pivot = int(len(values) * frac)
         return values[:pivot], values[pivot:]
 
     split1, split2 = zip(*map(sampler, groups.values()))
@@ -200,8 +209,7 @@ def classes_split(items, frac):
 
 
 def split_dataset(ds, frac):
-    """Split dataset while retaining class balance
-    """
+    """Split dataset while retaining class balance"""
 
     ds1 = copy.deepcopy(ds)
     ds2 = copy.copy(ds1)

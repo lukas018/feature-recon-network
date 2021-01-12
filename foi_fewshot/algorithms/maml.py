@@ -6,15 +6,10 @@ import torch.nn.functional as F
 from learn2learn.algorithms import MAML
 
 
-class MAML():
-    """Wrapper class for MAML
-    """
+class MAML:
+    """Wrapper class for MAML"""
 
-    def __init__(self,
-                 model,
-                 fast_lr,
-                 update_steps=5,
-                 loss=F.cross_entropy):
+    def __init__(self, model, fast_lr, update_steps=5, loss=F.cross_entropy):
 
         self.model = MAML(model, fast_lr)
         self.update_steps = update_steps
@@ -42,16 +37,12 @@ class MAML():
         return logits
 
 
-class ANIL():
-    """Wrapper class for ANIL:
-    """
+class ANIL:
+    """Wrapper class for ANIL:"""
 
-    def __init__(self,
-                 feature_extractor,
-                 head,
-                 fast_lr,
-                 update_steps=5,
-                 loss=F.cross_entropy):
+    def __init__(
+        self, feature_extractor, head, fast_lr, update_steps=5, loss=F.cross_entropy
+    ):
         self.feature_extractor = feature_extractor
         self.head = MAML(head, fast_lr)
         self.update_steps = update_steps
@@ -79,4 +70,3 @@ class ANIL():
         query_features = self.feature_extractor(query_data)
         logits = F.softmax(head(query_features))
         return logits
-

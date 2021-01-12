@@ -1,5 +1,6 @@
 import torch.nn as nn
 
+
 def conv3x3(in_planes, out_planes):
     return nn.Conv2d(in_planes, out_planes, 3, padding=1, bias=False)
 
@@ -13,8 +14,7 @@ def norm_layer(planes):
 
 
 class Block(nn.Module):
-    """Standard ResNet Convolutional Block
-    """
+    """Standard ResNet Convolutional Block"""
 
     def __init__(self, inplanes, planes, downsample):
         super().__init__()
@@ -74,8 +74,9 @@ class ResNet12(nn.Module):
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out',
-                                        nonlinearity='leaky_relu')
+                nn.init.kaiming_normal_(
+                    m.weight, mode="fan_out", nonlinearity="leaky_relu"
+                )
             elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)

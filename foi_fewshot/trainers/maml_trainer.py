@@ -6,8 +6,8 @@ from learn2learn.algorithms import MAML
 
 from foi_fewshot.trainers.fewshot_utils import maml_episode, reptile_episode
 
-class MAMLTrainer(FewshotTrainer):
 
+class MAMLTrainer(FewshotTrainer):
     def update(self, loss):
         loss.backward()
         for p in self.model.parameters():
@@ -33,19 +33,15 @@ class ReptileTrainer(FewshotTrainer):
 
         opt = self.optimizer_fn(self)
         opt.load_state_dict(self.optimizer.state_dict())
-        reptile = reptile_episode(model,
-                                  batch,
-                                  optimizer=opt,
-                                  update=self.args.update_steps,
-                                  *args,
-                                  **kwargs)
+        reptile = reptile_episode(
+            model, batch, optimizer=opt, update=self.args.update_steps, *args, **kwargs
+        )
 
         # Construct the global gradient from the difference between the two models
         if training:
             self.adapt_opt_state = opt.state_dict()
             for p, l in zip(self.model.parameters(), model.parameters()):
                 p.grad.data.add_(-1.0, l.data)
-
 
     def update(self, loss):
         # Here we dont' need to backpropogate the loss
