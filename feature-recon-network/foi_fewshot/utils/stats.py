@@ -1,6 +1,10 @@
+import numpy as np
+import scipy.stats as st
+import copy
+from collections import defaultdict
+
 
 class Averager():
-
     def __init__(self, alpha):
         self.alpha = alpha
         self.v = None
@@ -54,7 +58,7 @@ class Stats():
 class SummaryGroup():
 
     def __init__(self):
-        self.stats = defaultdict(Statistics)
+        self.stats = defaultdict(Stats)
 
     @classmethod
     def from_dicts(cls, metrics):
@@ -65,7 +69,7 @@ class SummaryGroup():
         return sg
 
     def __setitem__(self, key, *values):
-        self.stats[key](value)
+        self.stats[key](values)
 
     def write(self, writer, step, prefix=None):
 
@@ -79,7 +83,7 @@ class SummaryGroup():
                           in self.stats.items()]
         return '\n'.join(strs)
 
-    def join(sg):
+    def join(self, sg):
         new_sg = SummaryGroup(self.writer)
         new_sg.stats = copy.deepcopy(new_sg.stats)
         new_sg.stats.update(sg.stats)
