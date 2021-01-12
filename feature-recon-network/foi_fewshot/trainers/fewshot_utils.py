@@ -32,7 +32,7 @@ def maml_episode(learner,
     return loss, res
 
 
-def reptile_fewshot(learner,
+def reptile_episode(learner,
                     batch,
                     update_steps,
                     optimizer,
@@ -51,14 +51,14 @@ def reptile_fewshot(learner,
     # Adapt the model
     for step in range(update_steps):
         error = loss_fn(learner(support_data), support_labels)
-        optmizer.step(error)
+        optimizer.step(error)
 
     # Evaluate the adapted model
     logits = learner(query_data)
 
     # Compute loss
     loss = loss_fn(logits, query_labels)
-    res = compute_metrics(logits, labels, loss, metric_fn)
+    res = compute_metrics(logits, query_labels, loss, metric_fn)
 
     return loss, res
 
@@ -79,10 +79,10 @@ def fewshot_episode(learner, batch, query_k, device, metric_fn=None, loss_fn=F.c
     logits = learner(query_data, support_data)
 
     _loss = 0
-    if isinstance(logist, tuple):
+    if isinstance(logits, tuple):
         logits, _loss = logits
 
-    loss = loss_fn(logits, labels)
+    loss = loss_fn(logits, query_labels)
     loss += _loss
 
     res = compute_metrics(logits, labels, loss, metric_fn)

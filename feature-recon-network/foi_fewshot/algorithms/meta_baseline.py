@@ -1,10 +1,14 @@
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from .frn import FeatureReconNetwork
 
 
-class MetaBaseline():
-    """Implementation of a new meta-baseline: https://arxiv.org/pdf/2003.04390.pdf
 
-    A metric based fewshot learner
+class MetaBaseline():
+    """Implementation of ~A New  Meta-Maseline~ : https://arxiv.org/pdf/2003.04390.pdf
+
+    A metric based fewshot learner which uses pre-training
     """
 
     def __init__(self,
@@ -48,7 +52,9 @@ class MetaBaseline():
         """
 
         bsz = query.shape[0]
-        features = self.model(query).flatten(1,2,3)
+
+        # flatten the input to bsz x dim_f
+        features = self.model(query).flatten(1, 3)
 
         if support is not None:
             # Do few-shot prediction
@@ -60,13 +66,14 @@ class MetaBaseline():
 
             support_features = self.model(support.flatten(0, 1)).reshape((nway, k, -1))
             centroids = support_features.mean(axis=1)
-            centroids = centriods.unflatten(1).repeat((1, bsz, 1))
+            centroids = centroids.unflatten(1).repeat((1, bsz, 1))
 
             logits = self.dist_fn(features, support_features)
             logits = F.softmax(self.temperature*logits)
             logits = (logits, 0)
 
         else:
+            # Do a normal forward pass
             features = self.model(query)
             logits = self.class_matrix(features)
             logits = F.softmax(logits)
