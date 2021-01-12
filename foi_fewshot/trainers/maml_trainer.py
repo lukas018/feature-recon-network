@@ -1,10 +1,10 @@
 from copy import deepcopy
-from foi_fewshot.trainers.fewshot_utils import maml_episode, reptile_episode
 import numpy as np
 import torch
 import torch.nn.functional as F
-
 from learn2learn.algorithms import MAML
+
+from foi_fewshot.trainers.fewshot_utils import maml_episode, reptile_episode
 
 class MAMLTrainer(FewshotTrainer):
 

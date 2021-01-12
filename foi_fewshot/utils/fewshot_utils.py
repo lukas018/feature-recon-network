@@ -1,10 +1,16 @@
 import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
+import copy
+import numpy as np
+import torch
+import torch.nn as nn
+from .random_transforms import RandomNWays, RandomKShot
 
 def maml_episode(learner,
                  batch,
                  update_steps,
+                 kquery,
                  device,
                  loss_fn=F.cross_entropy,
                  metric_fn=None):
@@ -12,7 +18,7 @@ def maml_episode(learner,
     """
 
     # Separate data into support/query sets
-    query_data, query_labels, support_data, support_labels = _prepare_batch(batch, device)
+    query_data, query_labels, support_data, support_labels = _prepare_batch(batch, device, kquery)
 
     # We don't need to keep track of the nway, kshot setup here
     support_data = support_data.flatten(0, 1)
@@ -27,7 +33,7 @@ def maml_episode(learner,
 
     # Compute loss
     loss = loss_fn(logits, query_labels)
-    res = compute_metrics(logits, labels, loss, metric_fn)
+    res = compute_metrics(logits, query_labels, loss, metric_fn)
 
     return loss, res
 
@@ -35,6 +41,7 @@ def maml_episode(learner,
 def reptile_episode(learner,
                     batch,
                     update_steps,
+                    kquery,
                     optimizer,
                     device,
                     loss_fn=F.cross_entropy,
@@ -43,7 +50,7 @@ def reptile_episode(learner,
     """
 
     # Separate data into support/query sets
-    query_data, query_labels, support_data, support_labels = _prepare_batch(batch, device)
+    query_data, query_labels, support_data, support_labels = _prepare_batch(batch, device, kquery)
 
     # We don't need to keep track of the nway, kshot setup here
     support_data = support_data.flatten(0, 1)
@@ -63,7 +70,7 @@ def reptile_episode(learner,
     return loss, res
 
 
-def fewshot_episode(learner, batch, query_k, device, metric_fn=None, loss_fn=F.cross_entropy, **kwargs):
+def fewshot_episode(learner, batch, kquery, device, metric_fn=None, loss_fn=F.cross_entropy, **kwargs):
     """Perform a single fewshot epoch
 
     :param learner: The fewshot learner
@@ -73,7 +80,7 @@ def fewshot_episode(learner, batch, query_k, device, metric_fn=None, loss_fn=F.c
     """
 
     # Separate data into support and query sets
-    query_data, query_labels, support_data, support_labels = _prepare_batch(batch, device)
+    query_data, query_labels, support_data, support_labels = _prepare_batch(batch, device, kquery)
 
     # TODO(Lukas) Currently we assume that support is ordered, this should be changed
     logits = learner(query_data, support_data)
@@ -85,7 +92,7 @@ def fewshot_episode(learner, batch, query_k, device, metric_fn=None, loss_fn=F.c
     loss = loss_fn(logits, query_labels)
     loss += _loss
 
-    res = compute_metrics(logits, labels, loss, metric_fn)
+    res = compute_metrics(logits, query_labels, loss, metric_fn)
     return loss, res
 
 
@@ -99,8 +106,8 @@ def _split_fewshot_batch(images, labels, nways, total_k, query_k):
     query_indices = torch.from_numpy(query_indices)
     support_indices = torch.from_numpy(~query_indices)
 
-    query_data, query_labels = data[query_indicesj], labels[query_indicesj]
-    support_data,  support_labels = data[support_indices], labels[support_indices]
+    query_data, query_labels = images[query_indices], labels[query_indices]
+    support_data,  support_labels = images[support_indices], labels[support_indices]
 
     # We reshape here to keep track of the number of nways, kshots
     support_data = support_data.reshape((nways, total_k - query_k, images.shape[1:]))
@@ -108,17 +115,17 @@ def _split_fewshot_batch(images, labels, nways, total_k, query_k):
     return query_data, query_labels, support_data, support_labels
 
 
-def _prepare_batch(batch, device):
+def _prepare_batch(batch, device, kquery):
     data, labels = batch
     data, labels = data.to(device), labels.to(device)
 
     # Figure out the number of samples and classes
     nways = len(set(labels))
-    total_k = nway // len(labels)
-    kshos = total_k - query_k
+    total_k = nways // len(labels)
+    kshos = total_k - kquery
     img_shape = data.shape[1:]
 
-    return _split_fewshot_batch(data, labels, nways, total_k, query_k)
+    return _split_fewshot_batch(data, labels, nways, total_k, kquery)
 
 
 def compute_metrics(logits, labels, loss=None, metric_fn=None):
@@ -130,10 +137,10 @@ def compute_metrics(logits, labels, loss=None, metric_fn=None):
     :param metric_fn: Function that takes logits and labels and returns a dict of metrics
     """
 
-    if isinstace(logits, nn.Tensor):
+    if isinstance(logits, nn.Tensor):
         logits = logits.detach().data.numpy()
 
-    if isinstace(labels, nn.Tensor):
+    if isinstance(labels, nn.Tensor):
         labels = labels.detach().data.numpy()
 
     acc = np.sum(logits == labels) / len(logits)
@@ -144,7 +151,7 @@ def compute_metrics(logits, labels, loss=None, metric_fn=None):
             loss = loss.detach().data.numpy()
         metrics.update('loss', loss)
 
-    if metrics_fn is not None:
+    if metric_fn is not None:
         metrcs = {**metrics, **metric_fn(logits, labels)}
 
     return metrics

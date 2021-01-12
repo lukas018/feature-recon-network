@@ -2,14 +2,14 @@ import pytest
 import learn2learn as l2l
 
 from operator import itemgetter
-from functools import foldl
+from functools import reduce
 
 from foi_fewshot.utils import initialize_taskdataset, split_dataset
 
 
 @pytest.fixture
 def init_dataset():
-    ds = l2l.vision.datasets.MiniImagenet(mode='train', download=True)
+    ds = l2l.vision.datasets.MiniImagenet(root="~/Download", mode='train', download=True)
     return ds
 
 def test_task_dataloader(init_dataset):
@@ -26,7 +26,7 @@ def test_task_dataloader(init_dataset):
         assert lens[-1] < 5*20
         assert lens[-1] >= 4*20
 
-    assert not foldl(lambda x, y: x == y, lens)
+    assert not reduce(lambda x, y: x == y, lens)
 
 
 def test_ds_split(init_dataset):

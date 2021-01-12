@@ -97,7 +97,7 @@ class FeatureReconNetwork():
         query = self.model(query).flatten(1,2) * self.scale_factor
 
         if support is not None or self.cached_support:
-            if suppport is not None:
+            if support is not None:
                 support = self.compute_support(support)
             elif self.cached_support is not None:
                 support = self.cached_support

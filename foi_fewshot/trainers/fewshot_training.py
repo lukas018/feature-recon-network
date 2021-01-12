@@ -1,12 +1,15 @@
+import json
+
+import torch
+import torch.nn as nn
 from torch import functional as F
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 
 import numpy as np
 from pathlib import Path
-from .freshot_utils import fewshot_episode
 
-from .data import initialize_taskdataset, classes_split, split_dataset, SummaryGroup
+from ..utils import fewshot_episode, initialize_taskdataset, classes_split, split_dataset, SummaryGroup, compute_metrics
 
 from typing import List
 
@@ -178,7 +181,7 @@ class FewshotTrainer():
                     if self.scheduler is not None:
                         scheduler.step()
 
-                    sgs = SummaryGroyp.from_dicts(self.state.metrics[-self.args.batch_size:])
+                    sgs = SummaryGroup.from_dicts(self.state.metrics[-self.args.batch_size:])
                     _write_sgs({"train": sgs})
 
 
@@ -218,13 +221,13 @@ class FewshotTrainer():
         kquery = self.val_args.kquery if self.val_args is not None else self.args.kquery
         device = self.val_args.device if self.val_args is not None else self.args.device
 
-        res = []
+        metrics = []
         for i in range(num_episodes):
             batch = next(dl)
             _, _res = fewshot_episode(self.learner, batch, kquery, device, args.metric_fn)
-            res.append(_res)
+            metrics.append(_res)
 
-        SummaryGroup.from_dicts(metrics)
+        sg = SummaryGroup.from_dicts(metrics)
         return sg
 
     def fewshot_eval(self,
@@ -234,7 +237,7 @@ class FewshotTrainer():
         """
 
 
-        if dataset is None:
+        if datasets is None:
             if self.base_eval_dataset is not None:
                 datasets.update("base", self.base_eval_dataset)
 
@@ -319,7 +322,7 @@ class PreTrainer(FewshotTrainer):
         dl = self.get_eval_dataloader(dataset)
 
         metrics = []
-        for i, batch in enuemrate(dl):
+        for i, batch in enumerate(dl):
             _, _metrics = self.forward_step(batch)
             metrics.append(metrics)
 
@@ -353,7 +356,7 @@ class PreTrainer(FewshotTrainer):
                 self.state.curret_step += 1
 
                 self.optimizer.zero_grad()
-                loss, acc = prediction_step(batch)
+                loss, acc = self.forward_step(batch)
                 loss.backward()
                 self.optimizer.step()
 
