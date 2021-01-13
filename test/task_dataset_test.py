@@ -6,39 +6,19 @@ from functools import reduce
 
 from foi_fewshot.utils import initialize_taskdataset, split_dataset
 
+ds = None
 
-@pytest.fixture
-def init_dataset():
-    ds = l2l.vision.datasets.MiniImagenet(root="~/Download", mode='train', download=True)
-    return ds
-
-def test_task_dataloader(init_dataset):
-
-    nways = (1, 10)
+def test_task_dataloader():
+    global ds
+    ds = l2l.vision.datasets.MiniImagenet(root="~/Downloads", mode='train', download=True)
+    nways = (2, 10)
     kquery = 10
-    kways =  (kquery + 1, 20)
+    kways =  (kquery + 1, kquery+5)
 
-    dl = initialize_taskdataset(init_dataset, nways, kways, kquery, num_workers=1)
-    lens = []
-    for batch in range(dl):
+    dl = initialize_taskdataset(ds, nways, kways, num_tasks=100, num_workers=1)
+
+    from tqdm import tqdm
+    for batch in tqdm(iter(dl), total=100):
         images, labels = batch
-        lens.append(len(images))
-        assert lens[-1] < 5*20
-        assert lens[-1] >= 4*20
-
-    assert not reduce(lambda x, y: x == y, lens)
-
-
-def test_ds_split(init_dataset):
-    frac = 0.7
-    ds1, ds2 = split_dataset(init_dataset, frac)
-
-    assert len(ds1) == len(init_dataset) * frac
-    assert len(ds2) == len(init_dataset) (1. - frac)
-
-    init_labels = set(map(itemgetter(1), init_dataset.data))
-    ds1_labels = set(map(itemgetter(1), ds1.data))
-    ds2_labels = set(map(itemgetter(1), ds2.data))
-
-    assert len(init_labels) == len(ds1_labels)
-    assert len(init_labels) == len(ds2_labels)
+        assert images.shape[1] <= 10*15
+        assert images.shape[1] >= 2*11
