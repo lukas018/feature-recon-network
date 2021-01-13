@@ -263,7 +263,7 @@ def split_dataset(ds, frac, even_class_dist=False, custom_attrs=None):
         try:
             attrs = DATASET_ATTRIBUTES[type(ds)]
         except:
-            ValueError(f"Do not know how to split dataset of type: {type(ds)}")
+            ValueError(f"Can't split dataset of type: {type(ds)}\nPlease provide *custom_attrs*")
 
     if even_class_dist:
         labels = (
