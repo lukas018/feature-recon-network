@@ -283,7 +283,7 @@ def split_dataset(ds, frac, even_class_dist=False, custom_attrs=None):
         for attr in attrs:
             src_data = getattr(src, attr)
             target_data = (
-                ds.x[indx]
+                src_data[indx]
                 if isinstance(src_data, np.ndarray)
                 else [src_data[i] for i in indx]
             )
