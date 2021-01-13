@@ -1,0 +1,3 @@
+[submodule "learn2learn"]
+	path = learn2learn
+	url = git@github.com:lukas018/learn2learn.git

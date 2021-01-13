@@ -5,7 +5,43 @@ import copy
 import numpy as np
 import torch
 import torch.nn as nn
-from .random_transforms import RandomNWays, RandomKShot
+
+from operator import itemgetter
+from collections import defaultdict
+import random
+from itertools import chain
+
+from learn2learn.data.transforms import (
+    RandomNWays,
+    RandomKShots,
+    LoadData,
+    ConsecutiveLabels,
+    RemapLabels,
+    NWays,
+    KShots,
+)
+
+from learn2learn.data import MetaDataset, TaskDataset
+from l2l.vision.datasets import (
+    MiniImagenet,
+    FullOmniglot,
+    CUBirds200,
+    FC100,
+    TieredImagenet,
+    FGVCAircraft,
+    DescribableTextures,
+)
+
+
+DATASET_ATTRIBUTES = {
+    MiniImagenet: ["x", "y"],
+    FullOmniglot: ["dataset"],
+    CUBirds200: ["data"],
+    FC100: ["images", "labels"],
+    TieredImagenet: ["images", "labels"],
+    FGVCAircraft: ["data"],
+    DescribableTextures: ["data"],
+}
 
 
 def maml_episode(
@@ -167,7 +203,7 @@ def compute_metrics(logits, labels, loss=None, metric_fn=None):
     return metrics
 
 
-def initialize_taskdataset(ds, nways, kways, num_workers):
+def initialize_taskdataset(ds, nways, kshots, num_tasks, num_workers, shuffle=False):
     """Returns a fewshot classificatino task data loader
 
     :param ds: Dataset
@@ -176,43 +212,84 @@ def initialize_taskdataset(ds, nways, kways, num_workers):
     :param num_workers: Number of workers in the dataloader
     """
 
+    ds = MetaDataset(ds)
     task_transforms = [
-        RandomNways(ds, nways) if isinstance(nways, tuple) else Nways(ds, nways),
-        RandomKshot(ds, nways) if isinstance(kways, tuple) else Kshot(ds, kways),
-        LoadImage(ds),
+        RandomNWays(ds, nways) if isinstance(nways, tuple) else NWays(ds, nways),
+        RandomKShots(ds, kshots) if isinstance(kshots, tuple) else KShots(ds, kshots),
+        LoadData(ds),
         ConsecutiveLabels(ds),
-        RemapLabels(ds),
+        RemapLabels(ds, shuffle=shuffle),
     ]
-    meta_ds = MetaDataset(ds)
-    task_ds = TaskDataset(ds, task_transforms)
+
+    task_ds = TaskDataset(ds, task_transforms, num_tasks=num_tasks)
     return DataLoader(task_ds, num_workers=num_workers)
 
 
-def classes_split(items, frac):
+def classes_split(y, frac):
     """Helper function for spliting items while retaining class balance"""
 
     def groupby(items, key):
-        group = defaultdict()
+        group = defaultdict(list)
         for i, item in enumerate(items):
-            group[key(item)].append(item)
+            group[key(item)].append(i)
         return group
 
-    groups = idx_groupby(items, itemgetter(1))
+    idx_groups = groupby(y, lambda x: x)
 
     def sampler(values):
         random.shuffle(values)
         pivot = int(len(values) * frac)
         return values[:pivot], values[pivot:]
 
-    split1, split2 = zip(*map(sampler, groups.values()))
-    return np.array(chain(*split1)), np.array(chain(*split2))
+    split1, split2 = (*zip(*map(sampler, idx_groups.values())),)
+    return np.array(list(chain(*split1))), np.array(list(chain(*split2)))
 
 
-def split_dataset(ds, frac):
-    """Split dataset while retaining class balance"""
+def split_dataset(ds, frac, even_class_dist=False, custom_attrs=None):
+    """Split dataset
 
-    ds1 = copy.deepcopy(ds)
+    :param ds: Dataset
+    :param frac: Fractions of data use in the first dataset
+    :param even_class_dist: Enfore an even class distribution between splits
+    :param custom_attrs: Name of the attributes to split along (otherwise DATASET_ATTRIBUTES is used to look up)
+    """
+
+    ds1 = copy.copy(ds)
     ds2 = copy.copy(ds1)
 
-    ds1.data, ds2.data = class_split(ds1.data, frac)
+    if custom_attrs is not None:
+        attrs = custom_attrs
+    else:
+        try:
+            attrs = DATASET_ATTRIBUTES[type(ds)]
+        except:
+            ValueError(f"Do not know how to split dataset of type: {type(ds)}")
+
+    if even_class_dist:
+        labels = (
+            list(map(itemgetter(1), getattr(ds, attrs[0])))
+            if len(attrs) == 1
+            else getattr(ds, attrs[-1])
+        )
+        indx1, indx2 = classes_split(labels, frac)
+    else:
+        indx = np.arange(len(ds))
+        random.shuffle(indx)
+        cutoff = int(frac * len(indx))
+        indx1, indx2 = indx[:cutoff], indx[cutoff:]
+
+    def _copy(src, target, attrs, indx):
+        """Copy src.attr[indx] -> target.attr"""
+        for attr in attrs:
+            src_data = getattr(src, attr)
+            target_data = (
+                ds.x[indx]
+                if isinstance(src_data, np.ndarray)
+                else [src_data[i] for i in indx]
+            )
+            setattr(target, attr, target_data)
+
+    _copy(ds, ds1, attrs, indx1)
+    _copy(ds, ds2, attrs, indx2)
+
     return ds1, ds2
