@@ -4,24 +4,6 @@ import copy
 from collections import defaultdict
 
 
-class Averager:
-    def __init__(self, alpha):
-        self.alpha = alpha
-        self.v = None
-        self.count
-
-    def _update(self, v):
-        if self.count > 0:
-            self.v = (self.alpha * v) + ((1.0 * self.alpha) * self.v)
-        else:
-            self.v = v
-
-    def __call__(self, v=None):
-        if v is not None:
-            self._update(v)
-        return self.v
-
-
 class Stats:
     def __init__(self, moving_avg_window=None):
         self._values = []
@@ -54,10 +36,14 @@ class Stats:
     def __call__(self, *args):
         self._values.extend([*args])
 
+    def __len__(self):
+        return len(self._values)
 
+
+@dataclass_json
+@dataclass
 class SummaryGroup:
-    def __init__(self):
-        self.stats = defaultdict(Stats)
+    stats: Dict = defaultdict(Stats)
 
     @classmethod
     def from_dicts(cls, metrics):
@@ -79,6 +65,8 @@ class SummaryGroup:
     def __str__(self):
         strs = [
             f"{key}: {stat.mean:.3f} ± {stat.std:.3f}"
+            if len(stat) > 1
+            else f"{key}: {stat.mean:.3f}"
             for key, stat in self.stats.items()
         ]
         return "\n".join(strs)
@@ -88,3 +76,22 @@ class SummaryGroup:
         new_sg.stats = copy.deepcopy(new_sg.stats)
         new_sg.stats.update(sg.stats)
         return new_sg
+
+
+@dataclass_json
+@dataclass
+class LogEntry:
+    """ """
+
+    global_step: int = 0
+    prefix: Optional[str]
+    metrics: SummaryGroup
+
+    def __str__(self):
+        header = "============="
+        header += f"\nstep={self.global_step}\n============\n"
+        header += str(metrics)
+        return header
+
+    def write(self, writer):
+        self.metrics.write(writer, self.global_step, self.prefix)

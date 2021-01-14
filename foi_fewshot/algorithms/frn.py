@@ -66,7 +66,9 @@ class FeatureReconNetwork:
 
         # [nway, k*r, d]
         support = (
-            model(support.flatten(0, 1)).reshape(nway, -1, self.dimensions)
+            model(support.flatten(0, 1))
+            .permutate(0, 3, 1, 2)
+            .reshape(nway, -1, self.dimensions)
             * self.scale_factor
         )
 
@@ -98,7 +100,9 @@ class FeatureReconNetwork:
         # Compute and flatten the input features
         # [bsz, r, d]
         bsz = query.shape[0]
-        query = self.model(query).flatten(1, 2) * self.scale_factor
+        query = (
+            self.model(query).permutate(0, 3, 1, 2).flatten(1, 2) * self.scale_factor
+        )
 
         if support is not None or self.cached_support:
             if support is not None:

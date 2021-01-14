@@ -10,6 +10,7 @@ from operator import itemgetter
 from collections import defaultdict
 import random
 from itertools import chain
+from itertools import starmap
 
 from learn2learn.data.transforms import (
     RandomNWays,
@@ -22,7 +23,7 @@ from learn2learn.data.transforms import (
 )
 
 from learn2learn.data import MetaDataset, TaskDataset
-from l2l.vision.datasets import (
+from learn2learn.vision.datasets import (
     MiniImagenet,
     FullOmniglot,
     CUBirds200,
@@ -57,7 +58,8 @@ def maml_episode(
 
     # Separate data into support/query sets
     query_data, query_labels, support_data, support_labels = _prepare_batch(
-        batch, device, kquery
+        batch,
+        kquery,
     )
 
     # We don't need to keep track of the nway, kshot setup here
@@ -92,7 +94,8 @@ def reptile_episode(
 
     # Separate data into support/query sets
     query_data, query_labels, support_data, support_labels = _prepare_batch(
-        batch, device, kquery
+        batch,
+        kquery,
     )
 
     # We don't need to keep track of the nway, kshot setup here
@@ -114,7 +117,13 @@ def reptile_episode(
 
 
 def fewshot_episode(
-    learner, batch, kquery, device, metric_fn=None, loss_fn=F.cross_entropy, **kwargs
+    learner,
+    batch,
+    kquery,
+    device=None,
+    metric_fn=None,
+    loss_fn=F.cross_entropy,
+    **kwargs,
 ):
     """Perform a single fewshot epoch
 
@@ -126,7 +135,8 @@ def fewshot_episode(
 
     # Separate data into support and query sets
     query_data, query_labels, support_data, support_labels = _prepare_batch(
-        batch, device, kquery
+        batch,
+        kquery,
     )
 
     # TODO(Lukas) Currently we assume that support is ordered, this should be changed
@@ -143,12 +153,12 @@ def fewshot_episode(
     return loss, res
 
 
-def _split_fewshot_batch(images, labels, nways, total_k, query_k):
-    """Create"""
+def _split_fewshot_batch(images, labels, nways, ktotal, kquery):
+    """Separate a batch of images into support and query data"""
 
     # Separate data into support and query sets
-    query_indices = np.zeros((nways, total_k), dtype=bool)
-    query_indices[(np.arange(nway * k_total) % total_k) >= (total_k - query_k)] = True
+    query_indices = np.zeros((nways, ktotal), dtype=bool)
+    query_indices[(np.arange(nway * ktotal) % ktotal) >= (ktotal - kquery)] = True
     query_indices = torch.from_numpy(query_indices)
     support_indices = torch.from_numpy(~query_indices)
 
@@ -156,22 +166,18 @@ def _split_fewshot_batch(images, labels, nways, total_k, query_k):
     support_data, support_labels = images[support_indices], labels[support_indices]
 
     # We reshape here to keep track of the number of nways, kshots
-    support_data = support_data.reshape((nways, total_k - query_k, images.shape[1:]))
+    support_data = support_data.reshape((nways, ktotal - kquery, images.shape[1:]))
 
     return query_data, query_labels, support_data, support_labels
 
 
-def _prepare_batch(batch, device, kquery):
+def _prepare_batch(batch, kquery):
     data, labels = batch
-    data, labels = data.to(device), labels.to(device)
 
     # Figure out the number of samples and classes
-    nways = len(set(labels))
-    total_k = nways // len(labels)
-    kshos = total_k - kquery
-    img_shape = data.shape[1:]
-
-    return _split_fewshot_batch(data, labels, nways, total_k, kquery)
+    nways = len(torch.unique(labels))
+    ktotal = nways // len(labels)
+    return _split_fewshot_batch(data, labels, nways, ktotal, kquery)
 
 
 def compute_metrics(logits, labels, loss=None, metric_fn=None):
@@ -203,7 +209,9 @@ def compute_metrics(logits, labels, loss=None, metric_fn=None):
     return metrics
 
 
-def initialize_taskdataset(ds, nways, kshots, num_tasks, num_workers, shuffle=False):
+def initialize_taskdataset(
+    ds, nways, kshots, num_tasks, num_workers, batch_size=1, shuffle=False
+):
     """Returns a fewshot classificatino task data loader
 
     :param ds: Dataset
@@ -221,12 +229,22 @@ def initialize_taskdataset(ds, nways, kshots, num_tasks, num_workers, shuffle=Fa
         RemapLabels(ds, shuffle=shuffle),
     ]
 
-    task_ds = TaskDataset(ds, task_transforms, num_tasks=num_tasks)
-    return DataLoader(task_ds, num_workers=num_workers)
+    def collate_fn(batch):
+        return tuple(dp for dp in batch)
+
+    # We only need this custom collator if we used variable task sizes
+    if not isinstance(nways, tuple) and isinstance(kshots, tuple):
+        collate_fn = None
+
+    task_ds = TaskDataset(ds, task_transforms, num_tasks=num_tasks * batch_size)
+    return DataLoader(
+        task_ds, num_workers=num_workers, batch_size=batch_size, collate_fn=collate_fn
+    )
 
 
-def classes_split(y, frac):
-    """Helper function for spliting items while retaining class balance"""
+def _classes_split(y, frac):
+    """Helper function for spliting items while retaining class balance
+    Returns"""
 
     def groupby(items, key):
         group = defaultdict(list)
@@ -246,7 +264,10 @@ def classes_split(y, frac):
 
 
 def split_dataset(ds, frac, even_class_dist=False, custom_attrs=None):
-    """Split dataset
+    """Split dataset into two
+
+    This function is supposed to be used to create train/validation splits
+    of existing datasets.
 
     :param ds: Dataset
     :param frac: Fractions of data use in the first dataset
@@ -263,7 +284,9 @@ def split_dataset(ds, frac, even_class_dist=False, custom_attrs=None):
         try:
             attrs = DATASET_ATTRIBUTES[type(ds)]
         except:
-            ValueError(f"Can't split dataset of type: {type(ds)}\nPlease provide *custom_attrs*")
+            ValueError(
+                f"Can't split dataset of type: {type(ds)}\nPlease provide *custom_attrs*"
+            )
 
     if even_class_dist:
         labels = (
@@ -271,7 +294,7 @@ def split_dataset(ds, frac, even_class_dist=False, custom_attrs=None):
             if len(attrs) == 1
             else getattr(ds, attrs[-1])
         )
-        indx1, indx2 = classes_split(labels, frac)
+        indx1, indx2 = _classes_split(labels, frac)
     else:
         indx = np.arange(len(ds))
         random.shuffle(indx)

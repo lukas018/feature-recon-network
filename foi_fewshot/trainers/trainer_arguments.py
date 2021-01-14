@@ -13,16 +13,23 @@ class TrainingArguments:
     modeldir: str = field(metadata={"help": "Path to save model dir"})
     logdir: str = field(metadata={"help": "Path to logging dir"})
 
-    batch_size: int = field(metadata={"help"})
-
+    do_eval: bool = field(
+        default=True, metadata={"Help": "Evaluate model during training"}
+    )
+    batch_size: int = field(default=1, metadata={"help": ""})
+    device_ids: List[int] = field(default=None, metadata={"help": "GPU devices ids"})
     num_workers: int = field(default=8)
     max_epochs: int = field(default=100, metadata={"help": ""})
 
     seed: int = field(default=42)
     modeldir_prefix: str = field("training-model", metadata={"help": ""})
 
-    optimizer: Optional[torch.optim] = field(default=None)
-    scheduler: Optional[torch.optim.lr_scheduler.Scheduler] = field(default=None)
+    optimizer: Optional[object] = field(
+        default=None, metadata={"help": "Optimizer to use during training"}
+    )
+    scheduler: Optional[object] = field(
+        default=None, metadata={"help": "Scheduler to use during training"}
+    )
 
     checkpoint_namegen: Optional[Callable] = field(
         None,
@@ -49,7 +56,6 @@ class FewshotArguments(TrainingArguments):
     nsupport: Union[int, Tuple[int, int]] = filed(default=10)
     nquery: int = field(default=15)
 
-    weight_decay: float = 0.0001
+    batch_size: int = field(default=1)
     num_workers: int = field(default=24)
-
-    eval_step: int = field(default=100)
+    eval_episodes: int = field(default=100)

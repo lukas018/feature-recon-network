@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from itertools import starmap
 
 
 class MetaBaseline:
@@ -56,13 +57,12 @@ class MetaBaseline:
         Standard prediction acts standard image classification with logits of n-classes.
         This mode is enabled by default and is meant to be used during the pre-training phase outlined in the original paper.
 
-
         Few-shot prediction is used when support-images are given as arguments.
         Support images are a set of n x k images (n classes, with k examples in each)
         and is used to compute the class representation matrices used for prediction.
 
-        :param query: Set of images such that shape=(bsz x h x w x channels)
-        :param support: Set of images such that shape=(bsz x k x h x w x channels)
+        :param query: Set of images such that shape=(meta_bsz, bsz, channels, h, w)
+        :param support: Set of images such that shape=(bsz, channels, k, h,  w)
 
         :return: Prediction for each imput image. Logit dimension depends on mode-used.
         """
@@ -99,4 +99,4 @@ class MetaBaseline:
             logits = self.class_matrix(features)
             logits = F.softmax(logits)
 
-            return logits
+            return (logits,)
