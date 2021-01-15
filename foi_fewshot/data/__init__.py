@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+from .utils import initialize_taskdataset, split_dataset
+
+from torchvision.transforms import (Compose, ToPILImage, ToTensor, RandomCrop, RandomHorizontalFlip,
+                                    ColorJitter, Normalize)
+import learn2learn as l2l
 
 def mini_imagenet(root):
     normalize = Normalize(
@@ -16,8 +21,8 @@ def mini_imagenet(root):
     test_data_transforms = Compose([
         normalize,
     ])
-    ds_train = l2l.vision.datasets.MiniImagenet(root, mode='train', transforms=train_data_transforms, download=True)
-    ds_val = l2l.vision.datasets.MiniImagenet(root, mode='validation', transforms=test_data_transforms, download=True)
-    ds_test =l2l.vision.datasets.MiniImagenet(root, mode='test',transforms=test_data_transforms, download=True)
+    ds_train = l2l.vision.datasets.MiniImagenet(root, mode='train', target_transform=train_data_transforms, download=True)
+    ds_val = l2l.vision.datasets.MiniImagenet(root, mode='validation', target_transform=test_data_transforms, download=True)
+    ds_test =l2l.vision.datasets.MiniImagenet(root, mode='test', target_transform=test_data_transforms, download=True)
 
     return ds_train, ds_val, ds_test

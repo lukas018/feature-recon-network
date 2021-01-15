@@ -4,15 +4,20 @@ from dataclasses import field
 import torch
 import torch.nn.functional as F
 
+
 @dataclass
 class TrainingArguments:
     modeldir: str = field(metadata={"help": "Path to save model dir"})
     logdir: str = field(metadata={"help": "Path to logging dir"})
+    log_file: str = field(default=None, metadata={"help": "Path to log-file"})
+    log_step: int = field(default=1, metadata={"help": "Steps at which to log results"})
+    writer: int = field(default=None, metadata={"help": "tensorboard SummaryWriter"})
 
     do_eval: bool = field(
         default=True, metadata={"Help": "Evaluate model during training"}
     )
-    batch_size: int = field(default=1, metadata={"help": ""})
+
+    batch_size: int = field(default=1, metadata={"help": "Batch size used during training"})
     device_ids: List[int] = field(default=None, metadata={"help": "GPU devices ids"})
     num_workers: int = field(default=8)
     max_epochs: int = field(default=100, metadata={"help": ""})

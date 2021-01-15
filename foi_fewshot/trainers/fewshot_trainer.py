@@ -1,7 +1,6 @@
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Dict
 import json
-
 import numpy as np
 import torch
 import torch.nn as nn
@@ -12,14 +11,13 @@ from torch.nn.parallel import DataParallel, DistributedDataParallel
 
 from ..utils import (
     fewshot_episode,
-    initialize_taskdataset,
     SummaryGroup,
     compute_metrics,
     LogEntry,
 )
-
+from ..data import initialize_taskdataset
 from .trainer_utils import TrainingState, MetabatchWrapper
-from typing import Dict, Optional
+
 
 
 class FewshotTrainer:
@@ -61,25 +59,26 @@ class FewshotTrainer:
         """
 
         self.model = model
+        self.train_dataset = train_dataset
+        self.args = args
+        self.eval_args = eval_args
+        self.logs = []
 
         # Move the model to the correct device if possible
         if self.args.device_ids is not None and len(self.args.device_ids) > 0:
             self.model = model.to(torch.device(self.args.device_ids[0]))
         else:
-            if self.cuda.is_available():
+            if torch.cuda.is_available():
                 self.model = self.model.cuda()
 
-        self.mb_wrapper = MetabatchWrapper(self.model)
+        self.mb_wrapper = MetabatchWrapper(self.model, self.args)
         data_parallel = DistributedDataParallel if distributed else DataParallel
         self.learner = data_parallel(
             self.mb_wrapper,
             device_ids=args.device_ids,
-            output_device=torch.device("CPU"),
+            output_device=torch.device("cpu"),
         )
 
-        self.train_dataset = train_dataset
-        self.args = args
-        self.eval_args = eval_args
 
         self.optimizer = optimizer
         self.optimizer = self._get_optimizer()
@@ -100,7 +99,7 @@ class FewshotTrainer:
     ):
         if self.args.optimizer:
             return self.args.optimizer
-        return torch.optim.SGD(self.model.parameters(), momentum=0.9)
+        return torch.optim.SGD(self.model.parameters(), lr=0.1, momentum=0.9)
 
     @classmethod
     def latest_modeldir(cls, path):
@@ -225,7 +224,7 @@ class FewshotTrainer:
 
         loss = losses.mean()
         loss.backward()
-        self.optimzer.step()
+        self.optimizer.step()
         self.optimizer.zero_grad()
 
     def scheduler_step(self):

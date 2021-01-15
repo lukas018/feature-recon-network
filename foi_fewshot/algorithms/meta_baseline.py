@@ -27,7 +27,7 @@ class MetaBaseline(nn.Module):
         :param num_classes: The number of classes in the pretraining dataset
         """
 
-        if self.class_matrix is not None or self.class_matrix.shape[1] == num_classes:
+        if self.class_matrix is None or self.class_matrix.shape[1] == num_classes:
             self.class_matrix = nn.Linear(dimensions, num_classes)
 
     def compute_centroids(self, support, cache=False):

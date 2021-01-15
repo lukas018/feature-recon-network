@@ -1,9 +1,10 @@
 from typing import List, Optional
 import json
 
+from tqdm import tqdm
 import torch
 import torch.nn as nn
-from torch import functional as F
+import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 from torch.nn.parallel import DataParallel, DistributedDataParallel
@@ -47,12 +48,11 @@ class PreTrainer(FewshotTrainer):
             on_epoch_end_callback,
             on_update_callback,
         )
-
         data_parallel = DistributedDataParallel if distributed else DataParallel
         self.data_parallel = data_parallel(
             self.model,
             device_ids=args.device_ids,
-            output_device=torch.device("CPU"),
+            output_device=torch.device("cpu"),
         )
 
     def get_train_dataloader(self):
@@ -89,8 +89,8 @@ class PreTrainer(FewshotTrainer):
         images, labels = batch
         logits = self.predict(images)
 
-        loss = F.cross_entropy(logits, labels)
-        metrics = compute_metrics(logits, labels, loss, self.arg.metric_fn)
+        loss = F.cross_entropy(logits, labels.long())
+        metrics = compute_metrics(logits, labels, loss, self.args.metric_fn)
 
         return loss, metrics
 
@@ -141,7 +141,7 @@ class PreTrainer(FewshotTrainer):
         ):
 
             dl_train = self.get_train_dataloader()
-            dl_iter = iter(dl_train)
+            dl_iter = tqdm(iter(dl_train), desc='Training model')
 
             if self.on_epoch_begin_callback:
                 self.on_epoch_begin_callback(self)
