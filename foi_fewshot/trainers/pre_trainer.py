@@ -11,17 +11,8 @@ from torch.nn.parallel import DataParallel, DistributedDataParallel
 import numpy as np
 from pathlib import Path
 
-from ..utils import (
-    fewshot_episode,
-    initialize_taskdataset,
-    classes_split,
-    split_dataset,
-    SummaryGroup,
-    compute_metrics,
-    LogEntry,
-)
-
-from . import FewshotTrainer
+from ..utils import compute_metrics
+from .fewshot_trainer import FewshotTrainer
 
 
 class PreTrainer(FewshotTrainer):

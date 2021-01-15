@@ -1,7 +1,9 @@
-from dataclass_json import dataclass
-from dataclass import dataclass
+from dataclasses_json import dataclass_json
+from dataclasses import dataclass
 import torch
-import torch.nn as nnn
+import torch.nn as nn
+
+from foi_fewshot.utils import fewshot_episode
 
 
 @dataclass_json
@@ -28,9 +30,9 @@ class MetabatchWrapper(nn.Module):
         args = args if args is not None else self.args
         results = [
             fewshot_episode(
-                self.model, task_batch, args.kquery, args.metric_fn, args.loss_fn
+                self.model, task_batch, args.kquery, None, args.metric_fn, args.loss_fn
             )
             for task_batch in meta_batch
         ]
-        loss, res = (zip(*results),)
+        loss, res = *zip(*results),
         return torch.stack(loss), list(res)

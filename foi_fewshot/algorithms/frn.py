@@ -4,7 +4,7 @@ from operator import itemgetter
 import torch
 import torch.utils.data as data
 import torch.nn as nn
-from torch.nn.functional import cdist
+from torch import cdist
 import torch.nn.functional as F
 from torch import linalg as LA
 from typing import Optional, Tuple
@@ -60,7 +60,7 @@ class FeatureReconNetwork:
                 (num_classes, self.dimensions, self.num_channels)
             )
 
-    def compute_support(self, support: nn.Torch, cache: bool = False) -> torch.Tensor:
+    def compute_support(self, support: torch.Tensor, cache: bool = False) -> torch.Tensor:
         # Do few-shot prediction
         nway = support.shape[0]
 
@@ -78,8 +78,8 @@ class FeatureReconNetwork:
         return support
 
     def forward(
-        self, query: nn.Torch, support: Optional[nn.Torch] = None
-    ) -> Tuple[nn.Torch, Tuple[nn.Torch, nn.Torch]]:
+        self, query: torch.Tensor, support: Optional[torch.Tensor] = None
+    ) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         """Predict labels using FRN.
 
         This function offerst two different modes: standard prediction and few-shot predictions.

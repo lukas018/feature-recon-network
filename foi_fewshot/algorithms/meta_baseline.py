@@ -3,20 +3,23 @@ import torch.nn as nn
 import torch.nn.functional as F
 from itertools import starmap
 
+from typing import Callable, Optional, Tuple
 
-class MetaBaseline:
+
+class MetaBaseline(nn.Module):
     """Implementation of ~A New  Meta-Maseline~ : https://arxiv.org/pdf/2003.04390.pdf
 
     A metric based fewshot learner which uses pre-training
     """
 
-    def __init__(self, model, temperature=1, dist_fn: Callable = F.cosine_distance):
+    def __init__(self, model, temperature=1, dist_fn: Callable = F.cosine_similarity):
 
+        super().__init__()
         self.model = model
         self.temperature = torch.tensor(temperature)
         self.dist_fn = dist_fn
         self.class_matrix = None
-        self.cached_centriods
+        self.cached_centroids = None
 
     def init_pretraining(self, dimensions: int, num_classes: int):
         """Initialize the FRN for pre-training
@@ -37,10 +40,9 @@ class MetaBaseline:
 
         """
 
-        nway = support.shape[0]
-        k = support.shape[1]
-        features = features.unflatten(0).repeat((nway, 1, 1))
-        support_features = self.model(support.flatten(0, 1)).reshape((nway, k, -1))
+        nways = support.shape[0]
+        kshots = support.shape[1]
+        support_features = self.model(support.flatten(0, 1)).reshape((nways, kshots, -1))
         centroids = support_features.mean(axis=1)
 
         if cache:
@@ -49,8 +51,8 @@ class MetaBaseline:
         return centroids
 
     def forward(
-        self, query: nn.Torch, support: Optional[nn.Torch] = None
-    ) -> Tuple[nn.Torch, Tuple[nn.Torch, nn.Torch]]:
+            self, query: torch.Tensor, support: Optional[torch.Tensor] = None
+    ) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         """Predict labels using FRN.
 
         This function offerst two different modes: standard prediction and few-shot predictions.
@@ -70,8 +72,7 @@ class MetaBaseline:
         bsz = query.shape[0]
 
         # flatten the input to bsz x dim_f
-        features = self.model(query).flatten(1, 3)
-
+        features = self.model(query)
         if support is not None or self.cached_centroids is not None:
 
             if support is not None:
@@ -80,12 +81,12 @@ class MetaBaseline:
             elif self.cached_centroids is not None:
                 centroids = self.cached_centroids
 
-            nway = self.cached_centroids
-            features = features.repeat((nway, 1, 1))
-            centroids = centroids.unflatten(1).repeat((1, bsz, 1))
+            nways = centroids.shape[0]
+            centroids = centroids.unsqueeze(0).repeat((bsz, 1, 1))
+            features = features.unsqueeze(1).repeat((1, nways, 1))
 
-            logits = self.dist_fn(features, centroids)
-            logits = F.softmax(self.temperature * logits)
+            logits = self.dist_fn(features, centroids, dim=2)
+            logits = F.softmax(self.temperature * logits, dim=1)
 
         else:
 
@@ -97,6 +98,6 @@ class MetaBaseline:
                 )
 
             logits = self.class_matrix(features)
-            logits = F.softmax(logits)
+            logits = F.softmax(logits, dim=1)
 
-            return (logits,)
+        return (logits,)

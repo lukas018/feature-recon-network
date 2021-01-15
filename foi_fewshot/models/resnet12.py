@@ -60,7 +60,7 @@ class ResNet12(nn.Module):
     ResNet12 have been used
     """
 
-    def __init__(self, channels):
+    def __init__(self, channels=[64, 160, 320, 640]):
         super().__init__()
 
         self.inplanes = 3

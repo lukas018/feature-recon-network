@@ -2,7 +2,10 @@ import numpy as np
 import scipy.stats as st
 import copy
 from collections import defaultdict
+from dataclasses import dataclass
+from dataclasses_json import dataclass_json
 
+from typing import Dict, Optional
 
 class Stats:
     def __init__(self, moving_avg_window=None):
@@ -40,10 +43,9 @@ class Stats:
         return len(self._values)
 
 
-@dataclass_json
-@dataclass
 class SummaryGroup:
-    stats: Dict = defaultdict(Stats)
+    def __init__(self):
+        self.stats = defaultdict(Stats)
 
     @classmethod
     def from_dicts(cls, metrics):
@@ -83,7 +85,7 @@ class SummaryGroup:
 class LogEntry:
     """ """
 
-    global_step: int = 0
+    global_step: int 
     prefix: Optional[str]
     metrics: SummaryGroup
 

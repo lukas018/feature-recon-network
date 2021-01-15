@@ -144,7 +144,12 @@ def fewshot_episode(
 
     _loss = 0
     if isinstance(logits, tuple):
-        logits, _loss = logits
+        if len(logits) == 2:
+            logits, _loss = logits
+        elif len(logits) == 1:
+            logits = logits[0]
+        else:
+            raise ValueError("Learner returned logits tuple of size >2")
 
     loss = loss_fn(logits, query_labels)
     loss += _loss
@@ -157,16 +162,16 @@ def _split_fewshot_batch(images, labels, nways, ktotal, kquery):
     """Separate a batch of images into support and query data"""
 
     # Separate data into support and query sets
-    query_indices = np.zeros((nways, ktotal), dtype=bool)
-    query_indices[(np.arange(nway * ktotal) % ktotal) >= (ktotal - kquery)] = True
-    query_indices = torch.from_numpy(query_indices)
+    query_indices = np.zeros(nways * ktotal, dtype=bool)
+    query_indices[(np.arange(nways * ktotal) % ktotal) >= (ktotal - kquery)] = True
     support_indices = torch.from_numpy(~query_indices)
+    query_indices = torch.from_numpy(query_indices)
 
     query_data, query_labels = images[query_indices], labels[query_indices]
     support_data, support_labels = images[support_indices], labels[support_indices]
 
     # We reshape here to keep track of the number of nways, kshots
-    support_data = support_data.reshape((nways, ktotal - kquery, images.shape[1:]))
+    support_data = support_data.reshape((nways, ktotal - kquery, *images.shape[1:]))
 
     return query_data, query_labels, support_data, support_labels
 
@@ -176,7 +181,7 @@ def _prepare_batch(batch, kquery):
 
     # Figure out the number of samples and classes
     nways = len(torch.unique(labels))
-    ktotal = nways // len(labels)
+    ktotal = len(labels) // nways
     return _split_fewshot_batch(data, labels, nways, ktotal, kquery)
 
 
@@ -189,22 +194,22 @@ def compute_metrics(logits, labels, loss=None, metric_fn=None):
     :param metric_fn: Function that takes logits and labels and returns a dict of metrics
     """
 
-    if isinstance(logits, nn.Tensor):
+    if isinstance(logits, torch.Tensor):
         logits = logits.detach().data.numpy()
 
-    if isinstance(labels, nn.Tensor):
+    if isinstance(labels, torch.Tensor):
         labels = labels.detach().data.numpy()
 
-    acc = np.sum(logits == labels) / len(logits)
+    acc = np.sum(np.argmax(logits, axis=1) == labels) / len(logits)
     metrics = {"acc": acc}
 
     if loss is not None:
-        if isinstance(logits, nn.Tensor):
-            loss = loss.detach().data.numpy()
-        metrics.update("loss", loss)
+        if isinstance(loss, torch.Tensor):
+            loss = float(loss.detach().data.numpy())
+        metrics.update({"loss": loss})
 
     if metric_fn is not None:
-        metrcs = {**metrics, **metric_fn(logits, labels)}
+        metrics = {**metrics, **metric_fn(logits, labels)}
 
     return metrics
 
@@ -230,11 +235,11 @@ def initialize_taskdataset(
     ]
 
     def collate_fn(batch):
-        return tuple(dp for dp in batch)
+        return tuple(tuple(dp) for dp in batch)
 
     # We only need this custom collator if we used variable task sizes
-    if not isinstance(nways, tuple) and isinstance(kshots, tuple):
-        collate_fn = None
+    # if not isinstance(nways, tuple) and not isinstance(kshots, tuple):
+        # collate_fn = None
 
     task_ds = TaskDataset(ds, task_transforms, num_tasks=num_tasks * batch_size)
     return DataLoader(

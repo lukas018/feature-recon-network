@@ -7,20 +7,19 @@ import torch
 import torch.nn as nn
 from torch import functional as F
 from torch.utils.tensorboard import SummaryWriter
-from torch.utils.data import DataLoader
+from torch.utils.data import Dataset, DataLoader
 from torch.nn.parallel import DataParallel, DistributedDataParallel
 
 from ..utils import (
     fewshot_episode,
     initialize_taskdataset,
-    classes_split,
-    split_dataset,
     SummaryGroup,
     compute_metrics,
     LogEntry,
 )
 
-from . import TrainingState, MetabatchWrapper
+from .trainer_utils import TrainingState, MetabatchWrapper
+from typing import Dict, Optional
 
 
 class FewshotTrainer:
