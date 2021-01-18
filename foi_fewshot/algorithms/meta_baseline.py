@@ -42,7 +42,9 @@ class MetaBaseline(nn.Module):
 
         nways = support.shape[0]
         kshots = support.shape[1]
-        support_features = self.model(support.flatten(0, 1)).reshape((nways, kshots, -1))
+        support_features = self.model(support.flatten(0, 1)).reshape(
+            (nways, kshots, -1)
+        )
         centroids = support_features.mean(axis=1)
 
         if cache:
@@ -51,7 +53,7 @@ class MetaBaseline(nn.Module):
         return centroids
 
     def forward(
-            self, query: torch.Tensor, support: Optional[torch.Tensor] = None
+        self, query: torch.Tensor, support: Optional[torch.Tensor] = None
     ) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         """Predict labels using FRN.
 

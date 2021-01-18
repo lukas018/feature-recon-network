@@ -40,6 +40,7 @@ import random
 from itertools import chain
 from itertools import starmap
 
+
 def initialize_taskdataset(
     ds, nways, kshots, num_tasks, num_workers, batch_size=1, shuffle=False
 ):
@@ -65,7 +66,7 @@ def initialize_taskdataset(
 
     # We only need this custom collator if we used variable task sizes
     # if not isinstance(nways, tuple) and not isinstance(kshots, tuple):
-        # collate_fn = None
+    # collate_fn = None
 
     task_ds = TaskDataset(ds, task_transforms, num_tasks=num_tasks * batch_size)
     return DataLoader(
@@ -145,5 +146,13 @@ def split_dataset(ds, frac=0.95, even_class_dist=False, custom_attrs=None):
 
     _copy(ds, ds1, attrs, indx1)
     _copy(ds, ds2, attrs, indx2)
+
+    # Since we might mess up the bookkeeping we need to recompute it later
+    def remove_bookkeeping(ds):
+        if hasattr(ds, "_bookkeeping_path"):
+            delattr(ds, "_bookkeeping_path")
+
+    remove_bookkeeping(ds1)
+    remove_bookkeeping(ds2)
 
     return ds1, ds2

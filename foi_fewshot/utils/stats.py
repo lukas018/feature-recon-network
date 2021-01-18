@@ -7,6 +7,7 @@ from dataclasses_json import dataclass_json
 
 from typing import Dict, Optional
 
+
 class Stats:
     def __init__(self, moving_avg_window=None):
         self._values = []
@@ -58,6 +59,9 @@ class SummaryGroup:
     def __setitem__(self, key, *values):
         self.stats[key](values)
 
+    def __call__(self, key, *args):
+        self.stats[key](*args)
+
     def write(self, writer, step, prefix=None):
 
         for key, stats in self.stats.items():
@@ -85,7 +89,7 @@ class SummaryGroup:
 class LogEntry:
     """ """
 
-    global_step: int 
+    global_step: int
     prefix: Optional[str]
     metrics: SummaryGroup
 

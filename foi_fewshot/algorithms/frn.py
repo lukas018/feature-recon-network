@@ -60,7 +60,9 @@ class FeatureReconNetwork:
                 (num_classes, self.dimensions, self.num_channels)
             )
 
-    def compute_support(self, support: torch.Tensor, cache: bool = False) -> torch.Tensor:
+    def compute_support(
+        self, support: torch.Tensor, cache: bool = False
+    ) -> torch.Tensor:
         # Do few-shot prediction
         nway = support.shape[0]
 

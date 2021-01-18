@@ -48,10 +48,14 @@ class PreTrainer(FewshotTrainer):
             on_epoch_end_callback,
             on_update_callback,
         )
-        data_parallel = DistributedDataParallel if distributed else DataParallel
+
+
+    def _envelop_model(self, model):
+        self.model = model
+        data_parallel = DistributedDataParallel if self.distributed else DataParallel
         self.data_parallel = data_parallel(
             self.model,
-            device_ids=args.device_ids,
+            device_ids=self.args.device_ids,
             output_device=torch.device("cpu"),
         )
 
@@ -141,7 +145,7 @@ class PreTrainer(FewshotTrainer):
         ):
 
             dl_train = self.get_train_dataloader()
-            dl_iter = tqdm(iter(dl_train), desc='Training model')
+            dl_iter = tqdm(iter(dl_train), desc="Training model")
 
             if self.on_epoch_begin_callback:
                 self.on_epoch_begin_callback(self)
@@ -150,6 +154,12 @@ class PreTrainer(FewshotTrainer):
                 losses, metrics = self.forward_step(batch)
                 self.update_step(losses)
                 self.scheduler_step()
+
+                if (
+                    self.state.current_step % self.args.save_step == 0
+                    and self.state.current_step > 0
+                ):
+                    self.save_checkpoint()
 
                 self.state.global_step += 1
                 self.state.current_step += 1

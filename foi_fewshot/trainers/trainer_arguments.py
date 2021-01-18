@@ -1,4 +1,4 @@
-from typing import Optional ,Tuple ,Union ,Callable ,List
+from typing import Optional, Tuple, Union, Callable, List
 from dataclasses import dataclass
 from dataclasses import field
 import torch
@@ -9,15 +9,23 @@ import torch.nn.functional as F
 class TrainingArguments:
     modeldir: str = field(metadata={"help": "Path to save model dir"})
     logdir: str = field(metadata={"help": "Path to logging dir"})
+
+    save_step: int = field(
+        default=5, metadata={"help": "Steps at which to log results"}
+    )
+    writer: int = field(default=None, metadata={"help": "Tensorboard SummaryWriter"})
+
     log_file: str = field(default=None, metadata={"help": "Path to log-file"})
     log_step: int = field(default=1, metadata={"help": "Steps at which to log results"})
-    writer: int = field(default=None, metadata={"help": "tensorboard SummaryWriter"})
+    do_logging: bool = field(default=True, metadata={"help": "Log results"})
 
     do_eval: bool = field(
         default=True, metadata={"Help": "Evaluate model during training"}
     )
 
-    batch_size: int = field(default=1, metadata={"help": "Batch size used during training"})
+    batch_size: int = field(
+        default=1, metadata={"help": "Batch size used during training"}
+    )
     device_ids: List[int] = field(default=None, metadata={"help": "GPU devices ids"})
     num_workers: int = field(default=8)
     max_epochs: int = field(default=100, metadata={"help": ""})
@@ -46,10 +54,7 @@ class TrainingArguments:
     )
 
     loss_fn: Callable = field(
-        default=F.cross_entropy,
-        metadata={
-            "help": "Loss function"
-        }
+        default=F.cross_entropy, metadata={"help": "Loss function"}
     )
 
 
@@ -67,16 +72,18 @@ class FewshotArguments(TrainingArguments):
     batch_size: int = field(default=1)
     num_workers: int = field(default=24)
     eval_episodes: int = field(default=100)
+    num_episodes: int = field(default=100)
+    epoch_length: int = field(default=100)
 
     @property
     def kshots(self):
-        if not isinstance(self.ksupport, tuple) and not instance(self.kquery, tuple):
-            return self.ksupport + kquery
+        if not isinstance(self.ksupport, tuple) and not isinstance(self.kquery, tuple):
+            return self.ksupport + self.kquery
 
         def tuple_wrap(v):
             if not isinstance(v, tuple):
                 v = (v, v)
             return v
 
-        kshots = *map(sum, zip(*map(tuple_wrap, (self.ksupport, kquery)))),
+        kshots = (*map(sum, zip(*map(tuple_wrap, (self.ksupport, kquery)))),)
         return kshots

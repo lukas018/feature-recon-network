@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import List, Optional, Dict
 import json
+from tqdm import tqdm
 import numpy as np
 import torch
 import torch.nn as nn
@@ -17,7 +18,6 @@ from ..utils import (
 )
 from ..data import initialize_taskdataset
 from .trainer_utils import TrainingState, MetabatchWrapper
-
 
 
 class FewshotTrainer:
@@ -59,6 +59,7 @@ class FewshotTrainer:
         """
 
         self.model = model
+        self.distributed = distributed
         self.train_dataset = train_dataset
         self.args = args
         self.eval_args = eval_args
@@ -71,14 +72,7 @@ class FewshotTrainer:
             if torch.cuda.is_available():
                 self.model = self.model.cuda()
 
-        self.mb_wrapper = MetabatchWrapper(self.model, self.args)
-        data_parallel = DistributedDataParallel if distributed else DataParallel
-        self.learner = data_parallel(
-            self.mb_wrapper,
-            device_ids=args.device_ids,
-            output_device=torch.device("cpu"),
-        )
-
+        self._envelop_model(model)
 
         self.optimizer = optimizer
         self.optimizer = self._get_optimizer()
@@ -90,8 +84,6 @@ class FewshotTrainer:
         self.on_epoch_begin_callback = on_epoch_begin_callback
         self.on_epoch_end_callback = on_epoch_end_callback
         self.on_update_callback = on_update_callback
-        self.validate = self.args.do_eval
-
         self.state = TrainingState()
 
     def _get_optimizer(
@@ -100,6 +92,16 @@ class FewshotTrainer:
         if self.args.optimizer:
             return self.args.optimizer
         return torch.optim.SGD(self.model.parameters(), lr=0.1, momentum=0.9)
+
+    def _envelop_model(self, model):
+        self.model = model
+        self.mb_wrapper = MetabatchWrapper(self.model, self.args)
+        data_parallel = DistributedDataParallel if self.distributed else DataParallel
+        self.learner = data_parallel(
+            self.mb_wrapper,
+            device_ids=self.args.device_ids,
+            output_device=torch.device("cpu"),
+        )
 
     @classmethod
     def latest_modeldir(cls, path):
@@ -120,33 +122,34 @@ class FewshotTrainer:
         """Save the current state of the model"""
 
         modeldir = modeldir if modeldir is not None else self.args.modeldir
+        modeldir = Path(modeldir).expanduser()
         modeldir.mkdir(exist_ok=True)
 
         if self.args.checkpoint_namegen is not None:
             prefix = self.args.checkpoint_namegen(self)
         else:
-            prefix = f"{self.args.prefix}-{self.state.epoch}"
+            prefix = f"{self.args.modeldir_prefix}-{self.state.epoch}-{self.state.current_step}"
 
         checkpointdir = Path(modeldir, prefix)
         checkpointdir.mkdir(exist_ok=True)
 
         torch.save(self.model.state_dict(), Path(checkpointdir, f"model.pkl"))
         if self.optimizer is not None:
-            torch.save(self.optimizer, Path(modeldir, "optimizer.pkl"))
+            torch.save(self.optimizer, Path(checkpointdir, "optimizer.pkl"))
 
         if self.scheduler is not None:
-            torch.save(self.scheduler, Path(modeldir, "scheduler.pkl"))
+            torch.save(self.scheduler, Path(checkpointdir, "scheduler.pkl"))
 
-        state_path = Path(modeldir, f"{prefix}-state.json")
+        state_path = Path(checkpointdir, f"state.json")
         with open(state_path, "w") as fh:
-            fh.write(self.state.tojson())
+            fh.write(self.state.to_json())
 
     def load_checkpoint(self, modeldir):
         """Load the trainer state from checkpoint"""
 
+        modeldir = Path(modeldir).expanduser()
         self.model.load_state_dict(torch.load(Path(modeldir, f"model.pkl")))
-        self.mb_wrapper = MetabatchWrapper(self.model)
-        self.learner = DataParallel(self.mb_wrapper, device_ids=self.args.device_ids)
+        self._envelop_model(self.model)
 
         optimizer_path = Path(modeldir, f"optimizer.pkl")
         if optimizer_path.is_file():
@@ -177,7 +180,7 @@ class FewshotTrainer:
         ):
 
             dl_train = self.get_train_dataloader()
-            dl_iter = iter(dl_train)
+            dl_iter = tqdm(dl_train, desc="Training", initial=self.state.current_step)
 
             if self.state.current_step > 0:
                 for i in range(0, self.state_current_step):
@@ -196,6 +199,12 @@ class FewshotTrainer:
 
                 if self.state.current_step % self.args.log_step == 0:
                     self.save_logs()
+
+                if (
+                    self.state.current_step % self.args.save_step == 0
+                    and self.state.current_step > 0
+                ):
+                    self.save_checkpoint()
 
                 self.state.global_step += 1
                 self.state.current_step += 1
@@ -279,7 +288,7 @@ class FewshotTrainer:
         :param metrics: A list of dictionaries
         :param prefix: Prefix to add to the record (used when writing to SummaryWriter)
         """
-        if not self.args.logging:
+        if not self.args.do_logging:
             return
 
         entry = LogEntry(

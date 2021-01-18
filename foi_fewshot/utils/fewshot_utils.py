@@ -6,8 +6,6 @@ import torch
 import torch.nn as nn
 
 
-
-
 def maml_episode(
     learner,
     batch,
@@ -175,5 +173,3 @@ def compute_metrics(logits, labels, loss=None, metric_fn=None):
         metrics = {**metrics, **metric_fn(logits, labels)}
 
     return metrics
-
-

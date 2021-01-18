@@ -34,5 +34,5 @@ class MetabatchWrapper(nn.Module):
             )
             for task_batch in meta_batch
         ]
-        loss, res = *zip(*results),
+        loss, res = (*zip(*results),)
         return torch.stack(loss), list(res)

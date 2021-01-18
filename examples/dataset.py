@@ -2,7 +2,8 @@ from tqdm import tqdm
 import learn2learn as l2l
 from learn2learn.data.transforms import RandomNWays, RandomKShots, LoadData, ConsecutiveLabels, RemapLabels
 from learn2learn.data import MetaDataset, TaskDataset
-from foi_fewshot.utils import initialize_taskdataset, split_dataset, fewshot_episode
+from foi_fewshot.data import initialize_taskdataset, split_dataset
+from foi_fewshot.utils import fewshot_episode
 from foi_fewshot.trainers import TrainingArguments, FewshotArguments, MetabatchWrapper
 from torch.nn.parallel import DataParallel, DistributedDataParallel
 
@@ -12,7 +13,7 @@ ds = l2l.vision.datasets.MiniImagenet(root="~/Downloads", mode='train', download
 # nways = (2, 10)
 # kquery = 10
 # kways =  (kquery + 1, kquery+5)
-nways = 5
+nways = (4, 6)
 kways = 5
 
 total = 100
@@ -20,9 +21,9 @@ dl = initialize_taskdataset(ds, nways, kways, num_tasks=total, num_workers=1, ba
 lens = []
 it = iter(dl)
 
-# pb = tqdm(it, total=total)
-# for batch in pb:
-#     pb.set_description(f"bsz: {batch[0][0].shape}")
+pb = tqdm(it, total=total)
+for batch in pb:
+    pb.set_description(f"bsz: {batch[0][0].shape}")
 
 
 # print(imgs.shape)
