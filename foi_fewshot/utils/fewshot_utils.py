@@ -6,8 +6,6 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 
-from ..data import initialize_taskloader as init_tl
-
 
 def _split_fewshot_batch(images, labels, nways, ktotal, kquery):
     """Separate a batch of images into support and query data"""
@@ -63,20 +61,3 @@ def compute_metrics(logits, labels, loss=None, metric_fn=None):
         metrics = {**metrics, **metric_fn(logits, labels)}
 
     return metrics
-
-
-def initialize_dataloader(dataset, args):
-    dl = DataLoader(dataset, batch_size=args.batch_size, num_workers=args.num_workers)
-    return dl
-
-
-def initialize_taskloader(dataset, args):
-    dl = init_tl(
-        dataset,
-        args.nways,
-        args.kshots,
-        args.kquery,
-        args.epoch_steps * args.gradient_accumulation_steps,
-        args.num_workers,
-    )
-    return dl

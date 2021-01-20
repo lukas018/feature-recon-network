@@ -11,6 +11,7 @@ from foi_fewshot.trainers import (
     EvalTaskGenerator
 )
 
+
 # Initialize the network backcone
 model = ResNet12()
 # Wrap with Metabaseline Wrapper
@@ -33,6 +34,7 @@ train_args = FewshotArguments(
     gradient_accumulation_steps=10,
     metric_for_best_model='acc',
 )
+breakpoint()
 
 eval_taskgen = EvalTaskGenerator(train_args)
 breakpoint()

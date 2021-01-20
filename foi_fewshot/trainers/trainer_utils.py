@@ -1,7 +1,39 @@
+from typing import Optional, List, Dict
+
 from dataclasses_json import dataclass_json
 from dataclasses import dataclass
 import torch
 import torch.nn as nn
+
+from .trainer_arguments import FewshotArguments
+
+
+def create_dataloader(dataset, args):
+    """
+    :param dataset: Dataset from which to sample
+    :param arguments: TrainingArguments
+    """
+
+    dl = DataLoader(dataset, batch_size=args.batch_size, num_workers=args.num_workers)
+    return dl
+
+
+def create_taskloader(dataset, args):
+    """Create a Taskloader specified by the TrainingArguments
+
+    :param dataset:
+    :param arguments: FewshotArguments
+    """
+
+    dl = initialize_taskloader(
+        dataset,
+        args.nways,
+        args.kshots,
+        args.kquery,
+        args.epoch_steps * args.gradient_accumulation_steps,
+        args.num_workers,
+    )
+    return dl
 
 
 class EvalTaskGenerator:
@@ -20,9 +52,9 @@ class EvalTaskGenerator:
         for entry in self.entries:
             prefix, ds, ta = entry
             if isinstance(ta, FewshotArguments):
-                yield prefix, initialize_taskloader(ds, ta)
+                yield prefix, create_taskloader(ds, ta)
             else:
-                yield prefix, initialize_dataloader(ds, ta)
+                yield prefix, create_dataloader(ds, ta)
 
     def __iter__(self):
         iter(self)
@@ -30,7 +62,7 @@ class EvalTaskGenerator:
 
 @dataclass_json
 @dataclass
-class TrainingState:
+class TrainerState:
     """Stateful representation of the training process"""
 
     epoch: Optional[float] = None
@@ -50,7 +82,7 @@ class TrainingState:
 
 @dataclass_json
 @dataclass
-class TrainingControl:
+class TrainerControl:
     should_training_stop: bool = False
     should_epoch_stop: bool = False
     should_save: bool = False

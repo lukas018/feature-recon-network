@@ -3,10 +3,10 @@ from dataclasses import dataclass
 from dataclasses import field
 import torch
 import torch.nn.functional as F
-import enum
+from enum import Enum
 
 
-class EvaluationStrategy(enum):
+class EvaluationStrategy(Enum):
     NO = "no"
     STEPS = "steps"
     EPOCH = "epoch"

@@ -14,14 +14,13 @@ import torch.optim as optim
 
 
 from ..utils import (
-    fewshot_episode,
     SummaryGroup,
     compute_metrics,
     LogEntry,
 )
 
-from .trainer_utils import TrainingState, TrainingControl, MetabatchWrapper
-from .utils import initialize_taskloader
+from .trainer_utils import TrainerState, TrainerControl, MetabatchWrapper, create_taskloader
+
 from .callbacks import (
     CallbackHandler,
     ProgressCallback,
@@ -73,8 +72,8 @@ class FewshotTrainer:
         )
 
         self.callback_handler = CallbackHandler(callbacks)
-        self.state = TrainingState()
-        self.control = TrainingControl()
+        self.state = TrainerState()
+        self.control = TrainerControl()
 
     def create_optimizer_and_scheduler(self, num_training_steps: int):
         if self.optimizer is None:
@@ -147,7 +146,7 @@ class FewshotTrainer:
         state_path = Path(modeldir, f"state.json"), "w"
         if state_path.is_file():
             with open(state_path, "w") as fh:
-                self.state = TrainingState.fromdict(json.load(fh))
+                self.state = TrainerState.fromdict(json.load(fh))
 
     def scheduler_step(self):
         """Runs scheduler at the current update step"""
@@ -377,7 +376,7 @@ class FewshotTrainer:
 
     def get_train_dataloader(self):
         """Returns the train dataloader"""
-        dl = initialize_taskloader(
+        dl = create_taskloader(
             self.train_dataset,
             self.args,
         )
