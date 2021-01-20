@@ -1,4 +1,5 @@
 import collections
+import math
 from pathlib import Path
 from typing import List, Optional, Dict
 import json
@@ -12,7 +13,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import Dataset, DataLoader
 from torch.nn.parallel import DataParallel, DistributedDataParallel
 import torch.optim as optim
-from learn2learn.data import MetaDataset
+from learn2learn.data import MetaDataset, TaskDataset
 
 from ..utils import (
     SummaryGroup,
@@ -20,7 +21,12 @@ from ..utils import (
     LogEntry,
 )
 
-from .trainer_utils import TrainerState, TrainerControl, MetabatchWrapper, create_taskloader
+from .trainer_utils import (
+    TrainerState,
+    TrainerControl,
+    MetabatchWrapper,
+    create_taskloader,
+)
 
 from .callbacks import (
     CallbackHandler,
@@ -38,13 +44,12 @@ DEFAULT_CALLBACKS = [DefaultFlowCallback, ProgressCallback]
 
 
 def default_lr_scheduler(model, optimizer, args):
-
     def get_lr(epoch):
-        return 1.
+        return 1.0
+
     lr_scheduler = optim.lr_scheduler.LambdaLR(optimizer, get_lr)
 
     return lr_scheduler
-
 
 
 class FewshotTrainer:
@@ -83,7 +88,9 @@ class FewshotTrainer:
             DEFAULT_CALLBACKS if callbacks is None else DEFAULT_CALLBACKS + callbacks
         )
 
-        self.callback_handler = CallbackHandler(callbacks, self.model, self.optimizer, self.lr_scheduler)
+        self.callback_handler = CallbackHandler(
+            callbacks, self.model, self.optimizer, self.lr_scheduler
+        )
         self.state = TrainerState()
         self.control = TrainerControl()
 
@@ -93,14 +100,19 @@ class FewshotTrainer:
             self.optimizer = optim.SGD(self.model.parameters(), lr=lr, momentum=0.9)
 
         if self.lr_scheduler is None:
-            self.lr_scheduler = default_lr_scheduler(self.model, self.optimizer, self.args)
+            self.lr_scheduler = default_lr_scheduler(
+                self.model, self.optimizer, self.args
+            )
 
+    def _envelop_model(self, model, fewshot_mode=True):
+        if fewshot_mode:
+            model = MetabatchWrapper(model)
 
-    def _envelop_model(self, model):
-        mb_wrapper = MetabatchWrapper(self.model)
-        data_parallel = DistributedDataParallel if self.args.distributed else DataParallel
+        data_parallel = (
+            DistributedDataParallel if self.args.distributed else DataParallel
+        )
         learner = data_parallel(
-            mb_wrapper,
+            model,
             device_ids=self.args.device_ids,
             output_device=torch.device("cpu"),
         )
@@ -176,28 +188,36 @@ class FewshotTrainer:
         outputs = model(**inputs)
         loss = self.compute_loss(model, inputs, outputs)
 
-        if len(loss) > 0:
+        if hasattr(loss, "__len__") and len(loss) > 0:
             loss = loss.mean()
 
         if self.args.gradient_accumulation_steps > 1:
             loss = loss / self.args.gradient_accumulation_steps
 
-        return loss
+        loss.backward()
+        return loss.detach()
 
     def train(self, modeldir=None):
 
         if modeldir is not None:
             self.load_checkpoint(modeldir)
 
-        model = self._envelop_model(self.model)
-
         self._total_loss_scalar = 0.0
         self._globalstep_last_logged = 0
 
         train_dataloader = self.get_train_dataloader()
-        num_update_steps_per_epoch = len(train_dataloader) // self.args.gradient_accumulation_steps
+        model = self._envelop_model(
+            self.model, isinstance(train_dataloader.dataset, TaskDataset)
+        )
+
+        num_update_steps_per_epoch = (
+            len(train_dataloader) // self.args.gradient_accumulation_steps
+        )
         train_dataset_is_sized = isinstance(self.train_dataset, collections.abc.Sized)
         epochs_trained = self.state.global_step // num_update_steps_per_epoch
+        max_steps = math.ceil(self.args.num_epochs * num_update_steps_per_epoch)
+        if self.state.max_steps == 0:
+            self.state.max_steps = max_steps
 
         for _ in range(epochs_trained):
             epoch_iterator = self.get_train_dataloader()
@@ -209,7 +229,7 @@ class FewshotTrainer:
         )
 
         for epoch in range(epochs_trained, self.args.num_epochs):
-            epoch_iterator = self.get_train_dataloader()
+            epoch_iterator = iter(self.get_train_dataloader())
 
             steps_in_epoch = (
                 len(epoch_iterator) if train_dataset_is_sized else self.args.max_steps
@@ -228,13 +248,17 @@ class FewshotTrainer:
             tr_loss = torch.tensor(0.0)
 
             for step, inputs in enumerate(epoch_iterator):
+                print(f"Current-step={step}, {epoch}")
 
-                self.control = self.callback_handler.on_step_begin(self.args, self.state, self.control)
+                self.control = self.callback_handler.on_step_begin(
+                    self.args, self.state, self.control
+                )
 
                 if steps_trained_in_current_epoch > 0:
                     steps_trained_in_current_epoch -= 1
 
                 tr_loss += self.training_step(model, inputs)
+                print(tr_loss)
 
                 if (step + 1) % self.args.gradient_accumulation_steps == 0 or (
                     steps_in_epoch <= self.args.gradient_accumulation_steps
@@ -246,34 +270,37 @@ class FewshotTrainer:
                     self.state.epoch = epoch + (step + 1) / steps_in_epoch
 
                     self.control = self.callback_handler.on_step_end(
-                        self.args, self.state, self.control,
+                        self.args,
+                        self.state,
+                        self.control,
                     )
+
+                    self._maybe_log_save_evaluate(tr_loss, model, epoch)
+                    print(tr_loss)
 
                 if self.control.should_epoch_stop or self.control.should_training_stop:
                     break
-
-                self._maybe_log_save_evaluate(tr_loss, model, epoch)
 
             self.control = self.callback_handler.on_epoch_end(
                 self.args, self.state, self.control
             )
             self._maybe_log_save_evaluate(tr_loss, model, epoch)
 
-            if self.control.should_epoch_stop:
+            if self.control.should_training_stop:
                 break
 
         if (
             self.args.load_best_model_at_end
             and self.state.best_model_checkpoint is not None
         ):
-            self.load_checkpoint(best_model_checkpoint)
+            self.load_checkpoint(self.state.best_model_checkpoint)
 
         self.control = self.callback_handler.on_train_end(
             self.args, self.state, self.control
         )
 
     def optimizer_step(self, loss):
-        loss.backward()
+        # loss.backward()
         self.optimizer.step()
         self.optimizer.zero_grad()
 
@@ -291,6 +318,7 @@ class FewshotTrainer:
         if self.control.should_log:
             logs: Dict[str, float] = {}
             tr_loss_scalar = tr_loss.item()
+
             # reset tr_loss to zero
             tr_loss -= tr_loss
             logs["loss"] = round(
@@ -335,9 +363,7 @@ class FewshotTrainer:
     def prediction_loop(self, dataloader):
 
         model = self.model
-        # multi-gpu eval
-        if self.args.n_gpu > 1:
-            model = self._envelop_model(model)
+        model = self._envelop_model(model, isinstance(dataloader.dataset, TaskDataset))
 
         total_loss, total_logits, total_labels = [], [], []
         for step, batch in enumerate(dataloader):
@@ -349,7 +375,7 @@ class FewshotTrainer:
         metrics = self.compute_metrics(total_logits, total_labels)
         return metrics
 
-    def compute_metrics(logits, labels):
+    def compute_metrics(self, logits, labels):
         metrics = compute_metrics(logits, labels)
         return metrics
 
@@ -377,13 +403,7 @@ class FewshotTrainer:
 
         metrics = dict()
         for prefix, dl in self.eval_task_generator:
-
-            if isinstance(dl.dataset, Taskdataset):
-                model = self._envelop_model(model)
-            elif self.args.n_gpu > 1:
-                model = DataParallel(model, self.args.device_ids)
-
-            _metrics = self.predic_loop(model, dl)
+            _metrics = self.prediction_loop(model, dl)
             metrics = {
                 **metrics,
                 **{f"eval-{prefix}-{key}" for key, metric in _metrics.items()},

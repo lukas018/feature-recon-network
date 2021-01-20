@@ -10,13 +10,34 @@ from .trainer_arguments import FewshotArguments
 from ..data import initialize_taskloader
 
 
-def create_dataloader(dataset, args):
+def _custom_collate(batches):
+    """Simple collate function that wraps standard image, labels pairs
+    to a dict: query -> images,  query_labels -> labels
     """
+    records = [{"query": images, "query_labels": labels} for images, labels in batches]
+    return collate.default_collate(records)
+
+
+def create_dataloader(dataset, args):
+    """Create a dataloader from a given dataset
+
+    The dataloader will output data in the form of dicts with two labels "query" and "query_labels"
+    This is to make it compatable with most of the fewshot-wrappers
+
     :param dataset: Dataset from which to sample
     :param arguments: TrainingArguments
     """
 
-    dl = DataLoader(dataset, batch_size=args.batch_size, num_workers=args.num_workers)
+    batch_size = args.batch_size if args is not None else 1
+    num_workers = args.num_workers if args is not None else 1
+
+    dl = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        collate_fn=custom_collate,
+        shuffle=True
+    )
     return dl
 
 
@@ -34,19 +55,30 @@ def create_taskloader(dataset, args):
         args.kquery,
         args.epoch_steps * args.gradient_accumulation_steps,
         args.num_workers,
-        args.batch_size
+        args.batch_size,
     )
     return dl
 
 
 class EvalTaskGenerator:
-    """Iterator object for creating dataloaders and iterators"""
+    """Iterator object for creating dataloaders for both fewshot-tasks and standard learning"""
 
     def __init__(self, args=None):
         self.args = args
         self.entries = []
 
     def add(self, prefix, dataset, task_args=None):
+        """Adds a new dataset to the generator
+
+        :param prefix: Unique identifier to associate with the dataset
+        :param dataset: Dataset to generate dataloader from
+        :param task_args: An instance of TrainingArguments or derived class.
+           Used to determine what kind of dataloader to create.
+           If instance of FewshotArgument the dataloader will output fewshot-learning tasks.
+           If instance of TrainingArguments it will generate standard classification batches.
+           If task_args is None, self.args is used as default.
+        """
+
         task_args = task_args if task_args is not None else self.args
         entry = (prefix, dataset, task_args)
         self.entries.append(entry)
@@ -108,13 +140,16 @@ class TrainerControl:
 
 
 def multi_size_collate(batches):
+    """Collate function to join tensors if the tensors with the same key have different shapes
+    """
+
     keys = batches[0].keys()
     records = {k: [batch[k] for batch in batches] for k in keys}
     return records
 
 
 class MetabatchWrapper(nn.Module):
-    """Simple Wrapper to allow for processing multiple tasks at the same time"""
+    """Simple Wrapper to process Meta-batches, i.e. a collection of tasks"""
 
     def __init__(self, model):
         super().__init__()

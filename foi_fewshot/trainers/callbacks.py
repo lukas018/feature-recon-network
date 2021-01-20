@@ -4,6 +4,7 @@ from torch.utils.tensorboard import SummaryWriter
 from .trainer_arguments import TrainingArguments, EvaluationStrategy
 from .trainer_utils import TrainerState, TrainerControl
 
+
 class TrainerCallback:
     def on_init_end(
         self,
@@ -390,15 +391,17 @@ class ProgressCallback(TrainerCallback):
 class WriterCallback(TrainerCallback):
     def __init__(self, logdir):
         self.logdir = logdir
+        if self.logdir is not None:
+            self.logdir = Path(self.logdir).expanduser()
         self.writer = None
 
     def on_train_begin(self, args, state, control, **kwargs):
-        if state.is_local_process_zero:
+        if state.is_local_process_zero and self.logdir is not None:
             self.writer = SummaryWriter(self.logdir)
 
     def on_evaluate(self, args, state, control, **kwargs):
         if state.is_local_process_zero and self.writer is not None:
-            for key, values in kwargs["metrics"].items():
+            for key, values in kwargs.get("metrics", {}):
                 self.writer(key, values, state.global_step)
 
     def on_train_end(self, args, state, control, **kwargs):

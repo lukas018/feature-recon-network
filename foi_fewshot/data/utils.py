@@ -62,6 +62,7 @@ def task_collate(data, kquery):
     batch = prepare_task(batch, kquery)
     return batch
 
+
 def fewshot_metabatch_collate(tasks):
     """Collates"""
 
@@ -107,9 +108,17 @@ def initialize_taskloader(
     # if not isinstance(nways, tuple) and not isinstance(kshots, tuple):
     # collate_fn = None
 
-    task_ds = TaskDataset(ds, task_transforms, num_tasks=num_tasks * batch_size, task_collate=task_collate_fn)
+    task_ds = TaskDataset(
+        ds,
+        task_transforms,
+        num_tasks=num_tasks * batch_size,
+        task_collate=task_collate_fn,
+    )
     return DataLoader(
-        task_ds, num_workers=num_workers, batch_size=batch_size, collate_fn=meta_collate_fn
+        task_ds,
+        num_workers=num_workers,
+        batch_size=batch_size,
+        collate_fn=meta_collate_fn,
     )
 
 
@@ -127,11 +136,13 @@ def _classes_split(y, frac):
     split1, split2 = (*zip(*map(sampler, idx_groups.values())),)
     return np.array(list(chain(*split1))), np.array(list(chain(*split2)))
 
+
 def _idx_groupby(items, key):
     group = defaultdict(list)
     for i, item in enumerate(items):
         group[key(item)].append(i)
     return group
+
 
 def split_dataset(ds, frac=0.95, even_class_dist=False, custom_attrs=None):
     """Split dataset into two
@@ -195,6 +206,7 @@ def split_dataset(ds, frac=0.95, even_class_dist=False, custom_attrs=None):
 
     return ds1, ds2
 
+
 def fast_metadataset(dataset):
     attrs = DATASET_ATTRIBUTES.get(type(dataset), None)
     if attrs is None:
@@ -206,8 +218,6 @@ def fast_metadataset(dataset):
         x = getattr(dataset, attrs[-1])
         x = list(map(itemgetter(1), x))
 
-    indices_to_labels = {i:x for i, x in  enumerate(x)}
+    indices_to_labels = {i: x for i, x in enumerate(x)}
     labels_to_indices = _idx_groupby(x, lambda x: x)
     return MetaDataset(dataset, labels_to_indices, indices_to_labels)
-        
-

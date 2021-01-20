@@ -14,7 +14,9 @@ class EvaluationStrategy(Enum):
 
 @dataclass
 class TrainingArguments:
-    modeldir: str = field(default=None, metadata={"help": "Path to checkpoint models to"})
+    modeldir: str = field(
+        default=None, metadata={"help": "Path to checkpoint models to"}
+    )
     logdir: str = field(default=None, metadata={"help": "Path to write logs to"})
 
     batch_size: int = field(
@@ -37,14 +39,11 @@ class TrainingArguments:
         },
     )
     learning_rate: float = field(
-        default=0.1,
-        metadata={
-            "help": "Initial learning rate"
-        }
+        default=0.1, metadata={"help": "Initial learning rate"}
     )
     load_best_model_at_end: bool = field(default=True)
     logging_first_step: bool = field(default=True)
-    logging_steps: int = field(default=10)
+    logging_steps: int = field(default=1)
     num_workers: int = field(
         default=8, metadata={"help": "Number of parallel workers for loading data"}
     )

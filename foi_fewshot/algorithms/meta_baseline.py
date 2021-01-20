@@ -53,7 +53,7 @@ class MetaBaseline(nn.Module):
         return centroids
 
     def forward(
-            self, query: torch.Tensor, support: Optional[torch.Tensor] = None, **kwargs
+        self, query: torch.Tensor, support: Optional[torch.Tensor] = None, **kwargs
     ) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         """Predict labels using FRN.
 
