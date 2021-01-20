@@ -4,119 +4,9 @@ import copy
 import numpy as np
 import torch
 import torch.nn as nn
+from torch.utils.data import Dataset, DataLoader
 
-
-def maml_episode(
-    learner,
-    batch,
-    update_steps,
-    kquery,
-    device,
-    loss_fn=F.cross_entropy,
-    metric_fn=None,
-):
-    """MAML fewshot episode where the learner preforms *n=update_steps* gradient steps"""
-
-    # Separate data into support/query sets
-    query_data, query_labels, support_data, support_labels = _prepare_batch(
-        batch,
-        kquery,
-    )
-
-    # We don't need to keep track of the nway, kshot setup here
-    support_data = support_data.flatten(0, 1)
-
-    # Adapt the model
-    for step in range(update_steps):
-        error = loss_fn(learner(support_data), support_labels)
-        learner.adapt(error)
-
-    # Evaluate the adapted model
-    logits = learner(query_data)
-
-    # Compute loss
-    loss = loss_fn(logits, query_labels)
-    res = compute_metrics(logits, query_labels, loss, metric_fn)
-
-    return loss, res
-
-
-def reptile_episode(
-    learner,
-    batch,
-    update_steps,
-    kquery,
-    optimizer,
-    device,
-    loss_fn=F.cross_entropy,
-    metric_fn=None,
-):
-    """MAML fewshot episode where the learner preforms *n=update_steps* gradient steps"""
-
-    # Separate data into support/query sets
-    query_data, query_labels, support_data, support_labels = _prepare_batch(
-        batch,
-        kquery,
-    )
-
-    # We don't need to keep track of the nway, kshot setup here
-    support_data = support_data.flatten(0, 1)
-
-    # Adapt the model
-    for step in range(update_steps):
-        error = loss_fn(learner(support_data), support_labels)
-        optimizer.step(error)
-
-    # Evaluate the adapted model
-    logits = learner(query_data)
-
-    # Compute loss
-    loss = loss_fn(logits, query_labels)
-    res = compute_metrics(logits, query_labels, loss, metric_fn)
-
-    return loss, res
-
-
-def fewshot_episode(
-    learner,
-    batch,
-    kquery,
-    device=None,
-    metric_fn=None,
-    loss_fn=F.cross_entropy,
-    **kwargs,
-):
-    """Perform a single fewshot epoch
-
-    :param learner: The fewshot learner
-    :param batch: The batch of images [n, ksupport + kquery, h, w, c]
-    :param query_k: The number of samples to use as validation
-    :param compute_metrics: Computes an additional set of matrices
-    """
-
-    # Separate data into support and query sets
-    query_data, query_labels, support_data, support_labels = _prepare_batch(
-        batch,
-        kquery,
-    )
-
-    # TODO(Lukas) Currently we assume that support is ordered, this should be changed
-    logits = learner(query_data, support_data)
-
-    _loss = 0
-    if isinstance(logits, tuple):
-        if len(logits) == 2:
-            logits, _loss = logits
-        elif len(logits) == 1:
-            logits = logits[0]
-        else:
-            raise ValueError("Learner returned logits tuple of size >2")
-
-    loss = loss_fn(logits, query_labels)
-    loss += _loss
-
-    res = compute_metrics(logits, query_labels, loss, metric_fn)
-    return loss, res
+from ..data import initialize_taskloader as init_tl
 
 
 def _split_fewshot_batch(images, labels, nways, ktotal, kquery):
@@ -137,7 +27,7 @@ def _split_fewshot_batch(images, labels, nways, ktotal, kquery):
     return query_data, query_labels, support_data, support_labels
 
 
-def _prepare_batch(batch, kquery):
+def prepare_fewshot_batch(batch, kquery):
     data, labels = batch
 
     # Figure out the number of samples and classes
@@ -173,3 +63,20 @@ def compute_metrics(logits, labels, loss=None, metric_fn=None):
         metrics = {**metrics, **metric_fn(logits, labels)}
 
     return metrics
+
+
+def initialize_dataloader(dataset, args):
+    dl = DataLoader(dataset, batch_size=args.batch_size, num_workers=args.num_workers)
+    return dl
+
+
+def initialize_taskloader(dataset, args):
+    dl = init_tl(
+        dataset,
+        args.nways,
+        args.kshots,
+        args.kquery,
+        args.epoch_steps * args.gradient_accumulation_steps,
+        args.num_workers,
+    )
+    return dl

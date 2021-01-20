@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import functools
 import copy
 import numpy as np
 from torch.utils.data import DataLoader
@@ -23,6 +24,7 @@ from learn2learn.vision.datasets import (
     DescribableTextures,
 )
 
+from ..utils import prepare_fewshot_batch
 
 DATASET_ATTRIBUTES = {
     MiniImagenet: ["x", "y"],
@@ -41,15 +43,41 @@ from itertools import chain
 from itertools import starmap
 
 
-def initialize_taskdataset(
-    ds, nways, kshots, num_tasks, num_workers, batch_size=1, shuffle=False
+def prepare_task(batch, kquery):
+    query_data, query_labels, support_data, support_labels = prepare_fewshot_batch(
+        batch,
+        kquery,
+    )
+    return {
+        "query": query_data,
+        "query_labels": query_labels,
+        "support": support_data,
+        "support_labels": support_labels,
+    }
+
+
+def fewshot_metabatch_collate(batch, kquery):
+    """Collates"""
+
+    results = prepare_task(b, kquery)
+    keys = list(results[0].keys())
+    meta_batch = {k: [value[k] for value in results] for k in keys}
+    return meta_batch
+
+
+def initialize_taskloader(
+    ds, nways, kshots, kquery, num_tasks, num_workers, batch_size=1, shuffle=False
 ):
     """Returns a fewshot classificatino task data loader
 
     :param ds: Dataset
     :param nways: Number of classes (range or int)
-    :param kshow: Number of shots (support + query)
+    :param kshots: Number of shots (support + query)
+    :param kquery: Number of kquery elements (fixed)
+    :param num_tasks: The amount of samples to use in the data-loader
     :param num_workers: Number of workers in the dataloader
+    :param batch_size: Meta-batch size
+    :param shuffle: Whether to shuffle the order of the samples
     """
 
     ds = MetaDataset(ds)
@@ -61,8 +89,10 @@ def initialize_taskdataset(
         RemapLabels(ds, shuffle=shuffle),
     ]
 
-    def collate_fn(batch):
-        return tuple(tuple(dp) for dp in batch)
+    # def collate_fn(batch):
+    #     return tuple(tuple(dp) for dp in batch)
+
+    collate_fn = functools.partial(fewshot_metabatch_collate, kquery=kquery)
 
     # We only need this custom collator if we used variable task sizes
     # if not isinstance(nways, tuple) and not isinstance(kshots, tuple):

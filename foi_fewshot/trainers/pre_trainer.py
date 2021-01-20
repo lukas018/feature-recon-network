@@ -49,7 +49,6 @@ class PreTrainer(FewshotTrainer):
             on_update_callback,
         )
 
-
     def _envelop_model(self, model):
         self.model = model
         data_parallel = DistributedDataParallel if self.distributed else DataParallel
@@ -61,7 +60,6 @@ class PreTrainer(FewshotTrainer):
 
     def get_train_dataloader(self):
         """"""
-
         args = self.args
         dl = DataLoader(
             self.train_dataset, batch_size=args.batch_size, num_workers=args.num_workers
@@ -76,27 +74,6 @@ class PreTrainer(FewshotTrainer):
             dataset, batch_size=args.batch_size, num_workers=args.num_workers
         )
         return dl
-
-    def predict(self, images):
-        """Predicts labels of input images
-
-        logits are returned on the device specified in args.device
-
-        :param images: tensor of n images, i.e. with shape [n, h, w, c]
-        :return: Logits
-        """
-        return self.data_parallel(images)
-
-    def forward_step(self, batch):
-        """Perform a single forward step"""
-
-        images, labels = batch
-        logits = self.predict(images)
-
-        loss = F.cross_entropy(logits, labels.long())
-        metrics = compute_metrics(logits, labels, loss, self.args.metric_fn)
-
-        return loss, metrics
 
     def evaluate(self, dataset=None, prefix="eval", logging=False):
         """Evaluate the model"""
@@ -137,8 +114,6 @@ class PreTrainer(FewshotTrainer):
         if model_dir:
             self.load_checkpoint(model_dir)
 
-        self.model.train()
-
         for epoch in range(
             self.state.epoch,
             self.args.max_epochs,
@@ -152,6 +127,8 @@ class PreTrainer(FewshotTrainer):
 
             for batch in dl_iter:
                 losses, metrics = self.forward_step(batch)
+                breakpoint()
+
                 self.update_step(losses)
                 self.scheduler_step()
 

@@ -1,6 +1,12 @@
 from tqdm import tqdm
 import learn2learn as l2l
-from learn2learn.data.transforms import RandomNWays, RandomKShots, LoadData, ConsecutiveLabels, RemapLabels
+from learn2learn.data.transforms import (
+    RandomNWays,
+    RandomKShots,
+    LoadData,
+    ConsecutiveLabels,
+    RemapLabels,
+)
 from learn2learn.data import MetaDataset, TaskDataset
 from foi_fewshot.data import initialize_taskdataset, split_dataset
 from foi_fewshot.utils import fewshot_episode
@@ -9,7 +15,7 @@ from torch.nn.parallel import DataParallel, DistributedDataParallel
 
 from typing import Dict
 
-ds = l2l.vision.datasets.MiniImagenet(root="~/Downloads", mode='train', download=True)
+ds = l2l.vision.datasets.MiniImagenet(root="~/Downloads", mode="train", download=True)
 # nways = (2, 10)
 # kquery = 10
 # kways =  (kquery + 1, kquery+5)
@@ -17,7 +23,9 @@ nways = (4, 6)
 kways = 5
 
 total = 100
-dl = initialize_taskdataset(ds, nways, kways, num_tasks=total, num_workers=1, batch_size=4)
+dl = initialize_taskdataset(
+    ds, nways, kways, num_tasks=total, num_workers=1, batch_size=4
+)
 lens = []
 it = iter(dl)
 
@@ -31,6 +39,7 @@ for batch in pb:
 
 from foi_fewshot.models import ResNet12
 from foi_fewshot.algorithms.meta_baseline import MetaBaseline
+
 model = ResNet12()
 mb = MetaBaseline(model)
 # mb.init_pretraining(640, 64)

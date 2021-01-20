@@ -5,7 +5,12 @@ from tqdm import tqdm
 from foi_fewshot.models import ResNet12
 from foi_fewshot.data import mini_imagenet, split_dataset
 from foi_fewshot.algorithms import MetaBaseline
-from foi_fewshot.trainers import PreTrainer, FewshotTrainer, TrainingArguments, FewshotArguments
+from foi_fewshot.trainers import (
+    PreTrainer,
+    FewshotTrainer,
+    TrainingArguments,
+    FewshotArguments,
+)
 from foi_fewshot.data import initialize_taskdataset
 from torch.nn.parallel import DataParallel, DistributedDataParallel
 
@@ -30,7 +35,7 @@ train_arguments = TrainingArguments(
     modeldir_prefix="pretrain",
     batch_size=8,
     max_epochs=100,
-    save_step=5
+    save_step=5,
 )
 
 model = ResNet12()
@@ -47,7 +52,9 @@ fs_arguments = FewshotArguments(
     modeldir_prefix="pretrain",
 )
 
-fs_trainer = FewshotTrainer(meta_baseline, ds_train, fs_arguments, None, ds_base, ds_novel)
+fs_trainer = FewshotTrainer(
+    meta_baseline, ds_train, fs_arguments, None, ds_base, ds_novel
+)
 dl = fs_trainer.get_train_dataloader()
 fs_trainer.train()
 results = fs_trainer.evaluate(ds_test)

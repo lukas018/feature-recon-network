@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-from .utils import initialize_taskdataset, split_dataset
+from .utils import initialize_taskloader, split_dataset
 
 from torchvision.transforms import (
     Compose,

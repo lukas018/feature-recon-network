@@ -75,6 +75,7 @@ class MetaBaseline(nn.Module):
 
         # flatten the input to bsz x dim_f
         features = self.model(query)
+        outputs = {}
         if support is not None or self.cached_centroids is not None:
 
             if support is not None:
@@ -89,6 +90,7 @@ class MetaBaseline(nn.Module):
 
             logits = self.dist_fn(features, centroids, dim=2)
             logits = F.softmax(self.temperature * logits, dim=1)
+            outputs["logits"] = logits
 
         else:
 
@@ -101,5 +103,6 @@ class MetaBaseline(nn.Module):
 
             logits = self.class_matrix(features)
             logits = F.softmax(logits, dim=1)
+            output["logits"] = logits
 
-        return (logits,)
+        return output

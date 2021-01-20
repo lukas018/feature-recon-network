@@ -3,59 +3,65 @@ from dataclasses import dataclass
 from dataclasses import field
 import torch
 import torch.nn.functional as F
+import enum
+
+
+class EvaluationStrategy(enum):
+    NO = "no"
+    STEPS = "steps"
+    EPOCH = "epoch"
 
 
 @dataclass
 class TrainingArguments:
-    modeldir: str = field(metadata={"help": "Path to save model dir"})
-    logdir: str = field(metadata={"help": "Path to logging dir"})
-
-    save_step: int = field(
-        default=5, metadata={"help": "Steps at which to log results"}
-    )
-    writer: int = field(default=None, metadata={"help": "Tensorboard SummaryWriter"})
-
-    log_file: str = field(default=None, metadata={"help": "Path to log-file"})
-    log_step: int = field(default=1, metadata={"help": "Steps at which to log results"})
-    do_logging: bool = field(default=True, metadata={"help": "Log results"})
-
-    do_eval: bool = field(
-        default=True, metadata={"Help": "Evaluate model during training"}
-    )
+    modeldir: str = field(metadata={"help": "Path to checkpoint models to"})
 
     batch_size: int = field(
         default=1, metadata={"help": "Batch size used during training"}
     )
-    device_ids: List[int] = field(default=None, metadata={"help": "GPU devices ids"})
-    num_workers: int = field(default=8)
-    max_epochs: int = field(default=100, metadata={"help": ""})
 
+    device_ids: List[int] = field(
+        default=None, metadata={"help": "GPU devices ids to use during training"}
+    )
+    n_gpus: Optional[int] = field(
+        default=None, metadata={"help": "Number of gpus to use"}
+    )
+    evaluation_strategy: EvaluationStrategy = field(
+        default=EvaluationStrategy.NO, metadata={"help": "How to perform evaulation"}
+    )
+    eval_steps: int = field(
+        default=100,
+        metadata={
+            "help": "Perform evaluation every n steps for EvalationStrategy.STEPS"
+        },
+    )
+
+    num_workers: int = field(
+        default=8, metadata={"help": "Number of parallel workers for loading data"}
+    )
+    num_epochs: int = field(default=100, metadata={"help": "Maximum number of epochs"})
+
+    gradient_accumulation_steps: int = field(
+        default=1, metadata={"help": "Number of steps to perform between updates"}
+    )
     seed: int = field(default=42)
-    modeldir_prefix: str = field(default="training-model", metadata={"help": ""})
 
-    optimizer: Optional[object] = field(
-        default=None, metadata={"help": "Optimizer to use during training"}
+    metric_for_best_model: str = field(
+        default=None, metadata={"help": "Metric used to determine which model is best"}
     )
-    scheduler: Optional[object] = field(
-        default=None, metadata={"help": "Scheduler to use during training"}
+    greater_is_better: bool = field(
+        default=False, metadata={"help": "If a greater metric is better"}
     )
 
-    checkpoint_namegen: Optional[Callable] = field(
+    # TODO(Lukas) Create a better option for this
+    distributed: bool = field(
         default=None,
-        metadata={
-            "help": "Callabe which takes the current trainer as input and outputs a suitable prefix for the checkpoint model"
-        },
-    )
-    metric_fn: Optional[Callable] = field(
-        default=None,
-        metadata={
-            "help": "Callable which takes logits and labels and outputs a dict of numeral metrics"
-        },
+        metadata={"help": "Whether to use DataParallel or DistributedDataParallel"},
     )
 
-    loss_fn: Callable = field(
-        default=F.cross_entropy, metadata={"help": "Loss function"}
-    )
+    def post_init(self):
+        if self.n_gpus is None:
+            self.n_gpus = len(self.device_ids)
 
 
 @dataclass
@@ -65,25 +71,21 @@ class PretrainArguments(TrainingArguments):
 
 @dataclass
 class FewshotArguments(TrainingArguments):
-    nways: Union[int, Tuple[int, int]] = field(default=5)
-    ksupport: Union[int, Tuple[int, int]] = field(default=10)
-    kquery: int = field(default=15)
+    nways: Union[int, Tuple[int, int]] = field(
+        default=5, metadata={"help": "The number of classes in each task."}
+    )
+    ksupport: Union[int, Tuple[int, int]] = field(
+        default=10, metadata={"help": "The number of samples per class"}
+    )
+    kquery: int = field(default=15, metadata={"help": "The number of data points"})
 
-    batch_size: int = field(default=1)
-    num_workers: int = field(default=24)
-    eval_episodes: int = field(default=100)
-    num_episodes: int = field(default=100)
-    epoch_length: int = field(default=100)
+    epoch_steps: int = field(
+        default=100, metadata={"Help": "The number of steps in each epoch"}
+    )
 
     @property
     def kshots(self):
-        if not isinstance(self.ksupport, tuple) and not isinstance(self.kquery, tuple):
+        if isinstance(self.ksupport, tuple):
+            return self.ksupport[0] + self.kquery, self.ksupport[1] + self.kquery
+        else:
             return self.ksupport + self.kquery
-
-        def tuple_wrap(v):
-            if not isinstance(v, tuple):
-                v = (v, v)
-            return v
-
-        kshots = (*map(sum, zip(*map(tuple_wrap, (self.ksupport, kquery)))),)
-        return kshots

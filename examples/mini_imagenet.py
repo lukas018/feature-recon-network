@@ -11,10 +11,10 @@ model = resnet12()
 train_arguments = TrainingArguments()
 
 # Prepare the dataset
-ds = l2l.vision.datasets.MiniImagenet(mode='train', download=True)
+ds = l2l.vision.datasets.MiniImagenet(mode="train", download=True)
 train_ds, base_ds = split_dataset(ds, frac=0.9)
-novel_ds = l2l.vision.datasets.MiniImagenet(mode='val', download=True)
-test_ds = l2l.vision.datasets.MiniImagenet(mode='test', download=True)
+novel_ds = l2l.vision.datasets.MiniImagenet(mode="val", download=True)
+test_ds = l2l.vision.datasets.MiniImagenet(mode="test", download=True)
 
 # Pretrain the model
 pretrainer = PreTrainer(model, train_ds, train_args, base_ds, novel_ds)
