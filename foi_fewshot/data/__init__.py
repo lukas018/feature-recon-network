@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-from .utils import initialize_taskloader, split_dataset
+from .utils import initialize_taskloader, split_dataset, fast_metadataset
 
 from torchvision.transforms import (
     Compose,
@@ -34,13 +34,13 @@ def mini_imagenet(root):
         ]
     )
     ds_train = l2l.vision.datasets.MiniImagenet(
-        root, mode="train", target_transform=train_data_transforms, download=True
+        root, mode="train", transform=train_data_transforms, download=True
     )
     ds_val = l2l.vision.datasets.MiniImagenet(
-        root, mode="validation", target_transform=test_data_transforms, download=True
+        root, mode="validation", transform=test_data_transforms, download=True
     )
     ds_test = l2l.vision.datasets.MiniImagenet(
-        root, mode="test", target_transform=test_data_transforms, download=True
+        root, mode="test", transform=test_data_transforms, download=True
     )
 
     return ds_train, ds_val, ds_test

@@ -3,6 +3,7 @@ import functools
 import copy
 import numpy as np
 from torch.utils.data import DataLoader
+from torch.utils.data._utils import collate
 from learn2learn.data.transforms import (
     RandomNWays,
     RandomKShots,
@@ -56,12 +57,17 @@ def prepare_task(batch, kquery):
     }
 
 
-def fewshot_metabatch_collate(batch, kquery):
+def task_collate(data, kquery):
+    batch = collate.default_collate(data)
+    batch = prepare_task(batch, kquery)
+    return batch
+
+def fewshot_metabatch_collate(tasks):
     """Collates"""
 
-    results = prepare_task(b, kquery)
-    keys = list(results[0].keys())
-    meta_batch = {k: [value[k] for value in results] for k in keys}
+    # results = prepare_task(batch, kquery)
+    keys = list(tasks[0].keys())
+    meta_batch = {k: [task[k] for task in tasks] for k in keys}
     return meta_batch
 
 
@@ -70,7 +76,7 @@ def initialize_taskloader(
 ):
     """Returns a fewshot classificatino task data loader
 
-    :param ds: Dataset
+    :param ds: Dataset or Metadataset
     :param nways: Number of classes (range or int)
     :param kshots: Number of shots (support + query)
     :param kquery: Number of kquery elements (fixed)
@@ -80,7 +86,9 @@ def initialize_taskloader(
     :param shuffle: Whether to shuffle the order of the samples
     """
 
-    ds = MetaDataset(ds)
+    if not isinstance(ds, MetaDataset):
+        ds = fast_metadataset(ds)
+
     task_transforms = [
         RandomNWays(ds, nways) if isinstance(nways, tuple) else NWays(ds, nways),
         RandomKShots(ds, kshots) if isinstance(kshots, tuple) else KShots(ds, kshots),
@@ -92,15 +100,16 @@ def initialize_taskloader(
     # def collate_fn(batch):
     #     return tuple(tuple(dp) for dp in batch)
 
-    collate_fn = functools.partial(fewshot_metabatch_collate, kquery=kquery)
+    task_collate_fn = functools.partial(task_collate, kquery=kquery)
+    meta_collate_fn = fewshot_metabatch_collate
 
     # We only need this custom collator if we used variable task sizes
     # if not isinstance(nways, tuple) and not isinstance(kshots, tuple):
     # collate_fn = None
 
-    task_ds = TaskDataset(ds, task_transforms, num_tasks=num_tasks * batch_size)
+    task_ds = TaskDataset(ds, task_transforms, num_tasks=num_tasks * batch_size, task_collate=task_collate_fn)
     return DataLoader(
-        task_ds, num_workers=num_workers, batch_size=batch_size, collate_fn=collate_fn
+        task_ds, num_workers=num_workers, batch_size=batch_size, collate_fn=meta_collate_fn
     )
 
 
@@ -108,13 +117,7 @@ def _classes_split(y, frac):
     """Helper function for spliting items while retaining class balance
     Returns"""
 
-    def groupby(items, key):
-        group = defaultdict(list)
-        for i, item in enumerate(items):
-            group[key(item)].append(i)
-        return group
-
-    idx_groups = groupby(y, lambda x: x)
+    idx_groups = _idx_groupby(y, lambda x: x)
 
     def sampler(values):
         random.shuffle(values)
@@ -124,6 +127,11 @@ def _classes_split(y, frac):
     split1, split2 = (*zip(*map(sampler, idx_groups.values())),)
     return np.array(list(chain(*split1))), np.array(list(chain(*split2)))
 
+def _idx_groupby(items, key):
+    group = defaultdict(list)
+    for i, item in enumerate(items):
+        group[key(item)].append(i)
+    return group
 
 def split_dataset(ds, frac=0.95, even_class_dist=False, custom_attrs=None):
     """Split dataset into two
@@ -186,3 +194,20 @@ def split_dataset(ds, frac=0.95, even_class_dist=False, custom_attrs=None):
     remove_bookkeeping(ds2)
 
     return ds1, ds2
+
+def fast_metadataset(dataset):
+    attrs = DATASET_ATTRIBUTES.get(type(dataset), None)
+    if attrs is None:
+        return MetaDataset(dataset)
+
+    if len(attrs) > 1:
+        x = getattr(dataset, attrs[-1])
+    else:
+        x = getattr(dataset, attrs[-1])
+        x = list(map(itemgetter(1), x))
+
+    indices_to_labels = {i:x for i, x in  enumerate(x)}
+    labels_to_indices = _idx_groupby(x, lambda x: x)
+    return MetaDataset(dataset, labels_to_indices, indices_to_labels)
+        
+

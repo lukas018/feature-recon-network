@@ -53,7 +53,7 @@ class MetaBaseline(nn.Module):
         return centroids
 
     def forward(
-        self, query: torch.Tensor, support: Optional[torch.Tensor] = None
+            self, query: torch.Tensor, support: Optional[torch.Tensor] = None, **kwargs
     ) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         """Predict labels using FRN.
 
@@ -105,4 +105,4 @@ class MetaBaseline(nn.Module):
             logits = F.softmax(logits, dim=1)
             output["logits"] = logits
 
-        return output
+        return outputs

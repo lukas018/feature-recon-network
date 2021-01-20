@@ -4,14 +4,15 @@ from typing import List, Optional, Dict
 import json
 from tqdm import tqdm
 import numpy as np
+import itertools
 import torch
 import torch.nn as nn
-from torch import functional as F
+import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import Dataset, DataLoader
 from torch.nn.parallel import DataParallel, DistributedDataParallel
 import torch.optim as optim
-
+from learn2learn.data import MetaDataset
 
 from ..utils import (
     SummaryGroup,
@@ -28,12 +29,22 @@ from .callbacks import (
     WriterCallback,
 )
 
+from ..data import fast_metadataset
 
-DEFAULT_CALLBACKS = [DefaultFlowCallback, ProgressCallback, WriterCallback]
+from ..data import fast_metadataset
 
 
-def create_eval_dataloader(dataset, args):
-    return initalize_taskloader(dataset, args)
+DEFAULT_CALLBACKS = [DefaultFlowCallback, ProgressCallback]
+
+
+def default_lr_scheduler(model, optimizer, args):
+
+    def get_lr(epoch):
+        return 1.
+    lr_scheduler = optim.lr_scheduler.LambdaLR(optimizer, get_lr)
+
+    return lr_scheduler
+
 
 
 class FewshotTrainer:
@@ -63,31 +74,37 @@ class FewshotTrainer:
         self.model = model
         self.args = args
         self.train_dataset = train_dataset
+        self.train_meta_dataset = fast_metadataset(train_dataset)
         self.eval_task_generator = eval_task_generator
-        self.optimizer, self.scheduler = optimizers
-        self.create_otimizer_and_scheduler()
+        self.optimizer, self.lr_scheduler = optimizers
+        self.create_optimizer_and_scheduler()
 
         callbacks = (
             DEFAULT_CALLBACKS if callbacks is None else DEFAULT_CALLBACKS + callbacks
         )
 
-        self.callback_handler = CallbackHandler(callbacks)
+        self.callback_handler = CallbackHandler(callbacks, self.model, self.optimizer, self.lr_scheduler)
         self.state = TrainerState()
         self.control = TrainerControl()
 
-    def create_optimizer_and_scheduler(self, num_training_steps: int):
+    def create_optimizer_and_scheduler(self):
         if self.optimizer is None:
-            self.optimizer = optim.SGD(self.model.parameters(), momentum=0.9)
+            lr = self.args.learning_rate
+            self.optimizer = optim.SGD(self.model.parameters(), lr=lr, momentum=0.9)
+
+        if self.lr_scheduler is None:
+            self.lr_scheduler = default_lr_scheduler(self.model, self.optimizer, self.args)
+
 
     def _envelop_model(self, model):
-        self.model = model
-        self.mb_wrapper = MetabatchWrapper(self.model)
-        data_parallel = DistributedDataParallel if self.distributed else DataParallel
-        self.learner = data_parallel(
-            self.mb_wrapper,
+        mb_wrapper = MetabatchWrapper(self.model)
+        data_parallel = DistributedDataParallel if self.args.distributed else DataParallel
+        learner = data_parallel(
+            mb_wrapper,
             device_ids=self.args.device_ids,
             output_device=torch.device("cpu"),
         )
+        return learner
 
     def save_checkpoint(self, modeldir=None, metrics=None):
         """Save the current state of the model"""
@@ -106,8 +123,8 @@ class FewshotTrainer:
         if self.optimizer is not None:
             torch.save(self.optimizer, Path(checkpointdir, "optimizer.pkl"))
 
-        if self.scheduler is not None:
-            torch.save(self.scheduler, Path(checkpointdir, "scheduler.pkl"))
+        if self.lr_scheduler is not None:
+            torch.save(self.lr_scheduler, Path(checkpointdir, "scheduler.pkl"))
 
         torch.save(self.args, Path(checkpointdir, "train_arguments.pkl"))
 
@@ -137,11 +154,11 @@ class FewshotTrainer:
 
         optimizer_path = Path(modeldir, f"optimizer.pkl")
         if optimizer_path.is_file():
-            self.optimizer.load(optimizer_path)
+            self.optimizer.load_state_dict(torch.load(optimizer_path))
 
         scheduler_path = Path(modeldir, f"scheduler.pkl")
         if scheduler_path.is_file():
-            self.scheduler.load(optimizer_path)
+            self.lr_scheduler.load_state_dict(torch.load(optimizer_path))
 
         state_path = Path(modeldir, f"state.json"), "w"
         if state_path.is_file():
@@ -150,11 +167,7 @@ class FewshotTrainer:
 
     def scheduler_step(self):
         """Runs scheduler at the current update step"""
-
-        if self.scheduler is None:
-            return
-
-        self.scheduler.step()
+        self.lr_scheduler.step()
 
     def training_step(self, model, inputs):
         """"""
@@ -169,22 +182,24 @@ class FewshotTrainer:
         if self.args.gradient_accumulation_steps > 1:
             loss = loss / self.args.gradient_accumulation_steps
 
-        loss.backward()
+        return loss
 
     def train(self, modeldir=None):
 
         if modeldir is not None:
             self.load_checkpoint(modeldir)
 
-        model = self.envelop_model(self.model)
+        model = self._envelop_model(self.model)
 
         self._total_loss_scalar = 0.0
         self._globalstep_last_logged = 0
 
+        train_dataloader = self.get_train_dataloader()
+        num_update_steps_per_epoch = len(train_dataloader) // self.args.gradient_accumulation_steps
         train_dataset_is_sized = isinstance(self.train_dataset, collections.abc.Sized)
-        epochs_trained = self.state.epoch
+        epochs_trained = self.state.global_step // num_update_steps_per_epoch
 
-        for _ in range(self.state.epoch):
+        for _ in range(epochs_trained):
             epoch_iterator = self.get_train_dataloader()
             for _ in epoch_iterator:
                 break
@@ -193,7 +208,7 @@ class FewshotTrainer:
             self.args, self.state, self.control
         )
 
-        for epoch in range(epochs_trained, self.args.max_epochs):
+        for epoch in range(epochs_trained, self.args.num_epochs):
             epoch_iterator = self.get_train_dataloader()
 
             steps_in_epoch = (
@@ -210,11 +225,11 @@ class FewshotTrainer:
             self.control = self.callback_handler.on_epoch_begin(
                 self.args, self.state, self.control
             )
-            tr_loss = torch.vector(0.0)
+            tr_loss = torch.tensor(0.0)
 
             for step, inputs in enumerate(epoch_iterator):
 
-                self.control = self.callback_handler.on_step_begin()
+                self.control = self.callback_handler.on_step_begin(self.args, self.state, self.control)
 
                 if steps_trained_in_current_epoch > 0:
                     steps_trained_in_current_epoch -= 1
@@ -231,7 +246,7 @@ class FewshotTrainer:
                     self.state.epoch = epoch + (step + 1) / steps_in_epoch
 
                     self.control = self.callback_handler.on_step_end(
-                        self.args, self.state, self.control, loss=tr_loss
+                        self.args, self.state, self.control,
                     )
 
                 if self.control.should_epoch_stop or self.control.should_training_stop:
@@ -261,9 +276,8 @@ class FewshotTrainer:
         loss.backward()
         self.optimizer.step()
         self.optimizer.zero_grad()
-        loss -= loss
 
-    def logs(self, logs):
+    def log(self, logs):
         if self.state.epoch is not None:
             logs["epoch"] = round(self.state.epoch, 2)
 
@@ -273,7 +287,7 @@ class FewshotTrainer:
         output = {**logs, **{"step": self.state.global_step}}
         self.state.log_history.append(output)
 
-    def _maybe_log_save_evaluate(self, tr_loss, model, trial, epoch):
+    def _maybe_log_save_evaluate(self, tr_loss, model, epoch):
         if self.control.should_log:
             logs: Dict[str, float] = {}
             tr_loss_scalar = tr_loss.item()
@@ -323,7 +337,7 @@ class FewshotTrainer:
         model = self.model
         # multi-gpu eval
         if self.args.n_gpu > 1:
-            model = self.envelop_model(model)
+            model = self._envelop_model(model)
 
         total_loss, total_logits, total_labels = [], [], []
         for step, batch in enumerate(dataloader):
@@ -342,7 +356,13 @@ class FewshotTrainer:
     def compute_loss(self, model, inputs, outputs):
         labels = inputs["query_labels"]
         logits = outputs["logits"]
-        loss = F.softmax(logits, labels)
+
+        if isinstance(logits, torch.Tensor):
+            loss = F.cross_entropy(logits, labels)
+        else:
+            losses = tuple(itertools.starmap(F.cross_entropy, zip(logits, labels)))
+            loss = torch.stack(losses)
+
         return loss
 
     def evaluate(self, eval_task_generator=None):
@@ -359,7 +379,7 @@ class FewshotTrainer:
         for prefix, dl in self.eval_task_generator:
 
             if isinstance(dl.dataset, Taskdataset):
-                model = self.envelop_model(model)
+                model = self._envelop_model(model)
             elif self.args.n_gpu > 1:
                 model = DataParallel(model, self.args.device_ids)
 
@@ -377,7 +397,7 @@ class FewshotTrainer:
     def get_train_dataloader(self):
         """Returns the train dataloader"""
         dl = create_taskloader(
-            self.train_dataset,
+            self.train_meta_dataset,
             self.args,
         )
         return dl
