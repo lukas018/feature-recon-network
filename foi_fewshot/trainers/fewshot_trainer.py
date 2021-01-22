@@ -1,5 +1,9 @@
+import copy
+import functools
+import inspect
 import collections
 import math
+import logging
 from pathlib import Path
 from typing import List, Optional, Dict
 import json
@@ -37,12 +41,12 @@ from .callbacks import (
 )
 
 from ..data import fast_metadataset
-
-from ..data import fast_metadataset
+from .hyperparameter_search import run_hp_search
 
 
 DEFAULT_CALLBACKS = [DefaultFlowCallback, ProgressCallback]
 DEFAULT_MODEL_PREFIX = "checkpoint"
+logger = logging.get_logger(__name__)
 
 
 def default_lr_scheduler(model, optimizer, args):
@@ -53,6 +57,11 @@ def default_lr_scheduler(model, optimizer, args):
 
     return lr_scheduler
 
+def default_compute_objective(metrics, keyword="eval-loss"):
+    metrics = copy.deepcopy(metrics)
+    loss = metrics.pop("eval_loss", None)
+    _ = metrics.pop("epoch", None)
+    return loss if len(metrics) == 0 else sum(metrics.values())
 
 class FewshotTrainer:
     """FewshotTrainer
@@ -68,6 +77,7 @@ class FewshotTrainer:
         eval_task_generator=None,
         optimizers=(None, None),
         callbacks=None,
+        model_init=None,
     ):
         """
         :param model: Input model
@@ -85,6 +95,7 @@ class FewshotTrainer:
         self.eval_task_generator = eval_task_generator
         self.optimizer, self.lr_scheduler = optimizers
         self.create_optimizer_and_scheduler()
+        self.model_init = model_init
 
         callbacks = (
             DEFAULT_CALLBACKS if callbacks is None else DEFAULT_CALLBACKS + callbacks
@@ -123,7 +134,7 @@ class FewshotTrainer:
         )
         return learner
 
-    def save_checkpoint(self, modeldir=None, metrics=None):
+    def save_checkpoint(self, modeldir=None, trial=None, metrics=None):
         """Save the current state of the model"""
 
         modeldir = modeldir if modeldir is not None else self.args.modeldir
@@ -136,8 +147,14 @@ class FewshotTrainer:
         )
         prefix = f"{self.args.modeldir_prefix}-{self.state.global_step}"
 
-        checkpointdir = Path(modeldir, prefix)
-        checkpointdir.mkdir(exist_ok=True)
+        if trial is not None:
+            run_id = trial.number
+            run_name = self.hp_name(trial) if self.hp_name is not None else f"run-{run_id}"
+            checkpointdir = Path(modeldir, run_name, prefix)
+        else:
+            checkpointdir = Path(modeldir, prefix)
+
+        checkpointdir.mkdir(exist_ok=True, parents=True)
 
         torch.save(self.model.state_dict(), Path(checkpointdir, f"model.pkl"))
         if self.optimizer is not None:
@@ -169,6 +186,24 @@ class FewshotTrainer:
         state_path = Path(checkpointdir, f"state.json")
         with open(state_path, "w") as fh:
             fh.write(self.state.to_json())
+
+    def _hp_search_setup(self, trial):
+        self._trial = trial
+        if trial is None:
+            return
+
+        params = self.hp_space(trial)
+        for key, value in params.items():
+            if not hasattr(self.args, key):
+                raise AttributeError(
+                    f"Trying to set {key} in the hyperparameter search but there is no corresponding field in `TrainingArguments`."
+                )
+            old_attr = getattr(self.args, key, None)
+            # Casting value to the proper type
+            if old_attr is not None:
+                value = type(old_attr)(value)
+            setattr(self.args, key, value)
+            logger.info("Trial:", trial.params)
 
     def load_checkpoint(self, modeldir):
         """Load the trainer state from checkpoint"""
@@ -218,13 +253,16 @@ class FewshotTrainer:
         loss.backward()
         return loss.detach()
 
-    def train(self, modeldir=None):
+    def train(self, modeldir=None, trial=None):
+
+        self._hp_search_setup(trial)
 
         if modeldir is not None:
             self.load_checkpoint(modeldir)
 
         self._total_loss_scalar = 0.0
         self._globalstep_last_logged = 0
+        self.state.is_hyper_param_search = trial is not None
 
         train_dataloader = self.get_train_dataloader()
         model = self._envelop_model(
@@ -293,7 +331,7 @@ class FewshotTrainer:
                         self.control,
                     )
 
-                    self._maybe_log_save_evaluate(tr_loss, model, epoch)
+                    self._maybe_log_save_evaluate(tr_loss, model, trial, epoch)
 
                 if self.control.should_epoch_stop or self.control.should_training_stop:
                     break
@@ -301,7 +339,7 @@ class FewshotTrainer:
             self.control = self.callback_handler.on_epoch_end(
                 self.args, self.state, self.control
             )
-            self._maybe_log_save_evaluate(tr_loss, model, epoch)
+            self._maybe_log_save_evaluate(tr_loss, model, trial, epoch)
 
             if self.control.should_training_stop:
                 break
@@ -331,7 +369,7 @@ class FewshotTrainer:
         output = {**logs, **{"step": self.state.global_step}}
         self.state.log_history.append(output)
 
-    def _maybe_log_save_evaluate(self, tr_loss, model, epoch):
+    def _maybe_log_save_evaluate(self, tr_loss, model, trial, epoch):
         if self.control.should_log:
             logs: Dict[str, float] = {}
             tr_loss_scalar = tr_loss.item()
@@ -352,9 +390,10 @@ class FewshotTrainer:
         metrics = None
         if self.control.should_evaluate:
             metrics = self.evaluate()
+            self._report_to_hp_search(trial, epoch, metrics)
 
         if self.control.should_save:
-            self.save_checkpoint(metrics=metrics)
+            self.save_checkpoint(metrics=metrics, trial=trial)
             self.control = self.callback_handler.on_save(
                 self.args, self.state, self.control
             )
@@ -451,3 +490,53 @@ class FewshotTrainer:
             self.args,
         )
         return dl
+
+    def call_model_init(self, trial=None):
+        model_init_argcount = len(inspect.signature(self.model_init).parameters)
+        if model_init_argcount == 0:
+            model = self.model_init()
+        elif model_init_argcount == 1:
+            model = self.model_init(trial)
+        else:
+            raise RuntimeError("model_init should have 0 or 1 argument.")
+
+        if model is None:
+            raise RuntimeError("model_init should not return None.")
+
+        return model
+
+    def hyperparameter_search(
+        self, hp_space, n_trials, compute_objective, direction="minimize", **kwargs
+    ):
+        """Perform hyper parameter search using Optuna backend
+
+        :param hp_space:
+        :param n_trials:
+        :param compute_objective:
+        :param direction:
+
+        :return:
+        """
+
+
+        self.hp_space = hp_space
+        self.hp_name = hp_name
+
+        if compute_objective is None:
+            self.compute_objective = compute_objective
+        elif isinstance(compute_objective, str):
+            self.compute_objective = functools.partial(default_compute_objective, key=compute_objective)
+        else:
+            self.compute_objective = default_compute_objective
+
+        best_run = run_hp_search(self, n_trials, direction, **kwargs)
+        return best_run
+
+    def _report_to_hp_search(self, trial, epoch, metrics):
+        if trial is None:
+            return
+        self.objective = self.compute_objective(metrics.copy())
+        import optuna
+        trial.report(self.objective, epoch)
+        if trial.should_prune():
+            raise optuna.TrialPruned()
