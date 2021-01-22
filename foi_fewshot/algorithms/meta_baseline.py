@@ -55,9 +55,9 @@ class MetaBaseline(nn.Module):
     def forward(
         self, query: torch.Tensor, support: Optional[torch.Tensor] = None, **kwargs
     ) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
-        """Predict labels using FRN.
+        """Predict logit labels
 
-        This function offerst two different modes: standard prediction and few-shot predictions.
+        This function offers two different modes: ~standard prediction~ and ~few-shot prediction~.
         Standard prediction acts standard image classification with logits of n-classes.
         This mode is enabled by default and is meant to be used during the pre-training phase outlined in the original paper.
 
