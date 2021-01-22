@@ -102,7 +102,6 @@ class MetaBaseline(nn.Module):
                 )
 
             logits = self.class_matrix(features)
-            logits = F.softmax(logits, dim=1)
-            output["logits"] = logits
+            outputs["logits"] = logits
 
         return outputs

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 from torch.utils.data._utils import collate
+from torch.utils.data import DataLoader
 
 from .trainer_arguments import FewshotArguments
 from ..data import initialize_taskloader
@@ -35,7 +36,7 @@ def create_dataloader(dataset, args):
         dataset,
         batch_size=batch_size,
         num_workers=num_workers,
-        collate_fn=custom_collate,
+        collate_fn=_custom_collate,
         shuffle=True
     )
     return dl
@@ -104,6 +105,7 @@ class TrainerState:
     global_step: int = 0
     max_steps: int = 0
     num_train_epochs: int = 0
+    num_update_steps_per_epoch: int = 0
     log_history: List[Dict[str, float]] = None
     best_metric: Optional[float] = None
     best_model_checkpoint: Optional[str] = None

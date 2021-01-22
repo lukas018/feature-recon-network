@@ -11,6 +11,10 @@ class EvaluationStrategy(Enum):
     STEPS = "steps"
     EPOCH = "epoch"
 
+class SchedulerUpdateStrategy(Enum):
+    NP= "no"
+    STEPS = "steps"
+    EPOCH = "epoch"
 
 @dataclass
 class TrainingArguments:
@@ -37,6 +41,12 @@ class TrainingArguments:
         metadata={
             "help": "Perform evaluation every n steps for EvalationStrategy.STEPS"
         },
+    )
+    scheduler_update_strategy: SchedulerUpdateStrategy  = field(
+        default=SchedulerUpdateStrategy.STEPS,
+        metadata={
+            "help": "How the update scheduler should be updated"
+        }
     )
     learning_rate: float = field(
         default=0.1, metadata={"help": "Initial learning rate"}
@@ -80,7 +90,12 @@ class TrainingArguments:
 
 @dataclass
 class PretrainArguments(TrainingArguments):
-    pass
+    scheduler_update_stretagy: SchedulerUpdateStrategy = field(
+        default=SchedulerUpdateStrategy.EPOCH,
+        metadata={
+            "help": "How/when the learning rate scheduler should be updated"
+        }
+    )
 
 
 @dataclass

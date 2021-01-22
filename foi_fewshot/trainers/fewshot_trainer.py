@@ -28,6 +28,7 @@ from .trainer_utils import (
     create_taskloader,
 )
 
+from .trainer_arguments import SchedulerUpdateStrategy
 from .callbacks import (
     CallbackHandler,
     ProgressCallback,
@@ -45,7 +46,6 @@ DEFAULT_MODEL_PREFIX = "checkpoint"
 
 
 def default_lr_scheduler(model, optimizer, args):
-
     def get_lr(epoch):
         return 1.0
 
@@ -100,7 +100,9 @@ class FewshotTrainer:
         if self.optimizer is None:
             lr = self.args.learning_rate
             momentum = self.args.momentum
-            self.optimizer = optim.SGD(self.model.parameters(), lr=lr, momentum=momentum)
+            self.optimizer = optim.SGD(
+                self.model.parameters(), lr=lr, momentum=momentum
+            )
 
         if self.lr_scheduler is None:
             self.lr_scheduler = default_lr_scheduler(
@@ -127,20 +129,26 @@ class FewshotTrainer:
         modeldir = modeldir if modeldir is not None else self.args.modeldir
         modeldir = Path(modeldir).expanduser()
         modeldir.mkdir(exist_ok=True)
-        prefix = self.args.modeldir_prefix if self.args.modeldir_prefix is not None else DEFAULT_MODEL_PREFIX
         prefix = (
-            f"{self.args.modeldir_prefix}-{self.state.global_step}"
+            self.args.modeldir_prefix
+            if self.args.modeldir_prefix is not None
+            else DEFAULT_MODEL_PREFIX
         )
+        prefix = f"{self.args.modeldir_prefix}-{self.state.global_step}"
 
         checkpointdir = Path(modeldir, prefix)
         checkpointdir.mkdir(exist_ok=True)
 
         torch.save(self.model.state_dict(), Path(checkpointdir, f"model.pkl"))
         if self.optimizer is not None:
-            torch.save(self.optimizer.state_dict(), Path(checkpointdir, "optimizer.pkl"))
+            torch.save(
+                self.optimizer.state_dict(), Path(checkpointdir, "optimizer.pkl")
+            )
 
         if self.lr_scheduler is not None:
-            torch.save(self.lr_scheduler.state_dict(), Path(checkpointdir, "scheduler.pkl"))
+            torch.save(
+                self.lr_scheduler.state_dict(), Path(checkpointdir, "scheduler.pkl")
+            )
 
         torch.save(self.args, Path(checkpointdir, "train_arguments.pkl"))
 
@@ -183,7 +191,13 @@ class FewshotTrainer:
 
     def scheduler_step(self):
         """Runs scheduler at the current update step"""
-        self.lr_scheduler.step()
+        if self.args.scheduler_update_strategy == SchedulerUpdateStrategy.STEPS or (
+            self.args.scheduler_update_strategy == SchedulerUpdateStrategy.EPOCH
+            and self.state.num_update_steps_per_epoch != 0
+            and (self.state.global_step + 1) % self.state.num_update_steps_per_epoch
+            == 0
+        ):
+            self.lr_scheduler.step()
 
     def training_step(self, model, inputs):
         """"""
@@ -192,12 +206,11 @@ class FewshotTrainer:
         outputs = model(**inputs)
         loss = self.compute_loss(model, inputs, outputs)
 
-        if 'loss' in outputs:
-            for x, y in zip(loss, outputs['loss']):
+        if "loss" in outputs:
+            for x, y in zip(loss, outputs["loss"]):
                 x += y
 
-        if hasattr(loss, "__len__") and len(loss) > 0:
-            loss = loss.mean()
+        loss = loss.mean()
 
         if self.args.gradient_accumulation_steps > 1:
             loss = loss / self.args.gradient_accumulation_steps
@@ -221,6 +234,7 @@ class FewshotTrainer:
         num_update_steps_per_epoch = (
             len(train_dataloader) // self.args.gradient_accumulation_steps
         )
+        self.state.num_update_steps_per_epoch = num_update_steps_per_epoch
         train_dataset_is_sized = isinstance(self.train_dataset, collections.abc.Sized)
         epochs_trained = self.state.global_step // num_update_steps_per_epoch
         max_steps = math.ceil(self.args.num_epochs * num_update_steps_per_epoch)
@@ -358,8 +372,8 @@ class FewshotTrainer:
 
             loss = self.compute_loss(model, inputs, outputs)
 
-            if 'loss' in outputs:
-                for x, y in zip(loss, outputs['loss']):
+            if "loss" in outputs:
+                for x, y in zip(loss, outputs["loss"]):
                     x += y
 
             return loss, logits, labels
@@ -376,28 +390,29 @@ class FewshotTrainer:
             total_labels.extend(labels)
 
         metrics = self.compute_metrics(total_logits, total_labels)
-        metrics['loss'] = np.mean(total_loss)
+        metrics["loss"] = np.mean(total_loss)
         return metrics
 
     def compute_metrics(self, logits, labels):
         logits = list(itertools.chain(*logits))
         labels = list(itertools.chain(*labels))
+
         def _acc(logits, labels):
             idx = torch.argmax(logits)
-            size = 1. if len(labels.shape) == 0 else labels.shape[0]
+            size = 1.0 if len(labels.shape) == 0 else labels.shape[0]
             acc = ((idx == labels).float().sum() / size).detach().numpy()
             return acc
 
         accs = list(itertools.starmap(_acc, zip(logits, labels)))
         accs = np.mean(accs)
-        return {'acc': accs}
+        return {"acc": accs}
 
     def compute_loss(self, model, inputs, outputs):
         labels = inputs["query_labels"]
         logits = outputs["logits"]
 
         if isinstance(logits, torch.Tensor):
-            loss = F.cross_entropy(logits, labels)
+            loss = F.cross_entropy(logits, labels.long())
         else:
             losses = tuple(itertools.starmap(F.cross_entropy, zip(logits, labels)))
             loss = torch.stack(losses)
@@ -417,12 +432,12 @@ class FewshotTrainer:
         metrics = dict()
         for prefix, dl in self.eval_task_generator:
             _metrics = self.prediction_loop(model, dl)
-            _metrics = {f"eval-{prefix}-{key}": float(metric) for key, metric in _metrics.items()}
-            self.log(_metrics)
-            metrics = {
-                **metrics,
-                **_metrics
+            _metrics = {
+                f"eval-{prefix}-{key}": float(metric)
+                for key, metric in _metrics.items()
             }
+            self.log(_metrics)
+            metrics = {**metrics, **_metrics}
 
         self.control = self.callback_handler.on_evaluate(
             self.args, self.state, self.control, metrics=metrics
