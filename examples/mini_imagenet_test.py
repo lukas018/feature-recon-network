@@ -22,7 +22,15 @@ meta_baseline = MetaBaseline(model)
 # Initialize the datasets
 ds_train, ds_novel, ds_test = mini_imagenet("~/Downloads")
 ds_train, ds_base = split_dataset(ds_train, frac=0.95, even_class_dist=True)
-train_args = FewshotArguments(
+
+train_args = TrainingArguments(
+    batch_size=128,
+    gradient_accumulation_steps=1,
+    num_epochs=100,
+    evaluation_strategy=EvaluationStrategy.EPOCH
+)
+
+fs_args = FewshotArguments(
     modeldir="~/Downloads/models/",
     nways=2,
     ksupport=1,
@@ -37,10 +45,22 @@ train_args = FewshotArguments(
     evaluation_strategy=EvaluationStrategy.STEPS
 )
 
-eval_taskgen = EvalTaskGenerator(train_args)
+eval_taskgen = EvalTaskGenerator(fs_args)
 eval_taskgen.add("base", ds_base)
 eval_taskgen.add("novel", ds_novel)
+eval_taskgen.add("val-class", ds_base, train_args)
 
+breakpoint()
+# Pretrain the model
+meta_baseline.init_pretraining(64)
+pre_trainer = PreTrainer(
+    meta_baseline,
+    args=train_args,
+    eval_taskgen=eval_taskgen
+)
+pre_trainer.train()
+
+# Perform fewshot training
 fs_trainer = FewshotTrainer(
     meta_baseline, train_args, ds_train, eval_taskgen
 )
