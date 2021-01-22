@@ -41,9 +41,11 @@ from ..data import fast_metadataset
 
 
 DEFAULT_CALLBACKS = [DefaultFlowCallback, ProgressCallback]
+DEFAULT_MODEL_PREFIX = "checkpoint"
 
 
 def default_lr_scheduler(model, optimizer, args):
+
     def get_lr(epoch):
         return 1.0
 
@@ -97,7 +99,8 @@ class FewshotTrainer:
     def create_optimizer_and_scheduler(self):
         if self.optimizer is None:
             lr = self.args.learning_rate
-            self.optimizer = optim.SGD(self.model.parameters(), lr=lr, momentum=0.9)
+            momentum = self.args.momentum
+            self.optimizer = optim.SGD(self.model.parameters(), lr=lr, momentum=momentum)
 
         if self.lr_scheduler is None:
             self.lr_scheduler = default_lr_scheduler(
@@ -124,8 +127,9 @@ class FewshotTrainer:
         modeldir = modeldir if modeldir is not None else self.args.modeldir
         modeldir = Path(modeldir).expanduser()
         modeldir.mkdir(exist_ok=True)
+        prefix = self.args.modeldir_prefix if self.args.modeldir_prefix is not None else DEFAULT_MODEL_PREFIX
         prefix = (
-            f"{self.args.modeldir_prefix}-{self.state.epoch}-{self.state.current_step}"
+            f"{self.args.modeldir_prefix}-{self.state.global_step}"
         )
 
         checkpointdir = Path(modeldir, prefix)
@@ -133,10 +137,10 @@ class FewshotTrainer:
 
         torch.save(self.model.state_dict(), Path(checkpointdir, f"model.pkl"))
         if self.optimizer is not None:
-            torch.save(self.optimizer, Path(checkpointdir, "optimizer.pkl"))
+            torch.save(self.optimizer.state_dict(), Path(checkpointdir, "optimizer.pkl"))
 
         if self.lr_scheduler is not None:
-            torch.save(self.lr_scheduler, Path(checkpointdir, "scheduler.pkl"))
+            torch.save(self.lr_scheduler.state_dict(), Path(checkpointdir, "scheduler.pkl"))
 
         torch.save(self.args, Path(checkpointdir, "train_arguments.pkl"))
 
@@ -152,7 +156,7 @@ class FewshotTrainer:
                 or operator(metric_value, self.state.best_metric)
             ):
                 self.state.best_metric = metric_value
-                self.state.best_model_checkpoint = checkpointdir
+                self.state.best_model_checkpoint = str(checkpointdir)
 
         state_path = Path(checkpointdir, f"state.json")
         with open(state_path, "w") as fh:
@@ -170,7 +174,7 @@ class FewshotTrainer:
 
         scheduler_path = Path(modeldir, f"scheduler.pkl")
         if scheduler_path.is_file():
-            self.lr_scheduler.load_state_dict(torch.load(optimizer_path))
+            self.lr_scheduler.load_state_dict(torch.load(scheduler_path))
 
         state_path = Path(modeldir, f"state.json"), "w"
         if state_path.is_file():
@@ -187,6 +191,10 @@ class FewshotTrainer:
         model.train()
         outputs = model(**inputs)
         loss = self.compute_loss(model, inputs, outputs)
+
+        if 'loss' in outputs:
+            for x, y in zip(loss, outputs['loss']):
+                x += y
 
         if hasattr(loss, "__len__") and len(loss) > 0:
             loss = loss.mean()
@@ -248,8 +256,6 @@ class FewshotTrainer:
             tr_loss = torch.tensor(0.0)
 
             for step, inputs in enumerate(epoch_iterator):
-                print(f"Current-step={step}, {epoch}")
-
                 self.control = self.callback_handler.on_step_begin(
                     self.args, self.state, self.control
                 )
@@ -258,8 +264,6 @@ class FewshotTrainer:
                     steps_trained_in_current_epoch -= 1
 
                 tr_loss += self.training_step(model, inputs)
-                print(tr_loss)
-
                 if (step + 1) % self.args.gradient_accumulation_steps == 0 or (
                     steps_in_epoch <= self.args.gradient_accumulation_steps
                     and (step + 1) == steps_in_epoch
@@ -276,7 +280,6 @@ class FewshotTrainer:
                     )
 
                     self._maybe_log_save_evaluate(tr_loss, model, epoch)
-                    print(tr_loss)
 
                 if self.control.should_epoch_stop or self.control.should_training_stop:
                     break
@@ -337,7 +340,7 @@ class FewshotTrainer:
             metrics = self.evaluate()
 
         if self.control.should_save:
-            self.save_checkpoint(model, metrics=metrics)
+            self.save_checkpoint(metrics=metrics)
             self.control = self.callback_handler.on_save(
                 self.args, self.state, self.control
             )
@@ -353,31 +356,41 @@ class FewshotTrainer:
             labels = inputs["query_labels"]
             logits = outputs["logits"]
 
-            loss = torch.tensor(0)
-            loss += outputs.get("loss", torch.tensor(0))
+            loss = self.compute_loss(model, inputs, outputs)
 
-            loss += self.compute_loss(model, inputs, outputs)
+            if 'loss' in outputs:
+                for x, y in zip(loss, outputs['loss']):
+                    x += y
 
-            return loss, labels, logits
+            return loss, logits, labels
 
-    def prediction_loop(self, dataloader):
+    def prediction_loop(self, model, dataloader):
 
-        model = self.model
         model = self._envelop_model(model, isinstance(dataloader.dataset, TaskDataset))
 
         total_loss, total_logits, total_labels = [], [], []
         for step, batch in enumerate(dataloader):
             loss, logits, labels = self.prediction_step(model, batch)
-            total_loss.append(loss)
-            total_logits.append(logits)
-            total_labels.append(labels)
+            total_loss.extend(loss)
+            total_logits.extend(logits)
+            total_labels.extend(labels)
 
         metrics = self.compute_metrics(total_logits, total_labels)
+        metrics['loss'] = np.mean(total_loss)
         return metrics
 
     def compute_metrics(self, logits, labels):
-        metrics = compute_metrics(logits, labels)
-        return metrics
+        logits = list(itertools.chain(*logits))
+        labels = list(itertools.chain(*labels))
+        def _acc(logits, labels):
+            idx = torch.argmax(logits)
+            size = 1. if len(labels.shape) == 0 else labels.shape[0]
+            acc = ((idx == labels).float().sum() / size).detach().numpy()
+            return acc
+
+        accs = list(itertools.starmap(_acc, zip(logits, labels)))
+        accs = np.mean(accs)
+        return {'acc': accs}
 
     def compute_loss(self, model, inputs, outputs):
         labels = inputs["query_labels"]
@@ -404,9 +417,11 @@ class FewshotTrainer:
         metrics = dict()
         for prefix, dl in self.eval_task_generator:
             _metrics = self.prediction_loop(model, dl)
+            _metrics = {f"eval-{prefix}-{key}": float(metric) for key, metric in _metrics.items()}
+            self.log(_metrics)
             metrics = {
                 **metrics,
-                **{f"eval-{prefix}-{key}" for key, metric in _metrics.items()},
+                **_metrics
             }
 
         self.control = self.callback_handler.on_evaluate(

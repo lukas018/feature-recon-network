@@ -41,6 +41,9 @@ class TrainingArguments:
     learning_rate: float = field(
         default=0.1, metadata={"help": "Initial learning rate"}
     )
+    momentum: float = field(
+        default=0.9, metadata={"help": "Momentum for optimizer"}
+    )
     load_best_model_at_end: bool = field(default=True)
     logging_first_step: bool = field(default=True)
     logging_steps: int = field(default=1)
@@ -59,6 +62,9 @@ class TrainingArguments:
     )
     greater_is_better: bool = field(
         default=False, metadata={"help": "If a greater metric is better"}
+    )
+    modeldir_prefix: Optional[str] = field(
+        default=None, metadata={"help": "Checkpoint prefix"}
     )
 
     # TODO(Lukas) Create a better option for this
