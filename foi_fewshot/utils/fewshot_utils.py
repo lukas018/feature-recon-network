@@ -1,10 +1,5 @@
-import torch.nn.functional as F
-from torch.utils.tensorboard import SummaryWriter
-import copy
 import numpy as np
 import torch
-import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
 
 
 def _split_fewshot_batch(images, labels, nways, ktotal, kquery):
@@ -50,12 +45,12 @@ def compute_metrics(logits, labels, loss=None, metric_fn=None):
         labels = labels.detach().data.numpy()
 
     acc = np.sum(np.argmax(logits, axis=1) == labels) / len(logits)
-    metrics = {"acc": acc}
+    metrics = {'acc': acc}
 
     if loss is not None:
         if isinstance(loss, torch.Tensor):
             loss = float(loss.detach().data.numpy())
-        metrics.update({"loss": loss})
+        metrics.update({'loss': loss})
 
     if metric_fn is not None:
         metrics = {**metrics, **metric_fn(logits, labels)}

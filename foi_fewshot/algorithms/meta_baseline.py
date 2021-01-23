@@ -1,9 +1,10 @@
+from typing import Callable
+from typing import Dict
+from typing import Optional
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from itertools import starmap
-
-from typing import Callable, Optional, Tuple
 
 
 class MetaBaseline(nn.Module):
@@ -18,8 +19,8 @@ class MetaBaseline(nn.Module):
         self.model = model
         self.temperature = torch.tensor(temperature)
         self.dist_fn = dist_fn
-        self.class_matrix = None
-        self.cached_centroids = None
+        self.class_matrix: Optional[nn.Linear] = None
+        self.cached_centroids: Optional[torch.Tensor] = None
 
     def init_pretraining(self, dimensions: int, num_classes: int):
         """Initialize the FRN for pre-training
@@ -27,7 +28,7 @@ class MetaBaseline(nn.Module):
         :param num_classes: The number of classes in the pretraining dataset
         """
 
-        if self.class_matrix is None or self.class_matrix.shape[1] == num_classes:
+        if self.class_matrix is None or self.class_matrix.weight.shape[1] == num_classes:
             self.class_matrix = nn.Linear(dimensions, num_classes)
 
     def compute_centroids(self, support, cache=False):
@@ -43,7 +44,7 @@ class MetaBaseline(nn.Module):
         nways = support.shape[0]
         kshots = support.shape[1]
         support_features = self.model(support.flatten(0, 1)).reshape(
-            (nways, kshots, -1)
+            (nways, kshots, -1),
         )
         centroids = support_features.mean(axis=1)
 
@@ -53,8 +54,8 @@ class MetaBaseline(nn.Module):
         return centroids
 
     def forward(
-        self, query: torch.Tensor, support: Optional[torch.Tensor] = None, **kwargs
-    ) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        self, query: torch.Tensor, support: Optional[torch.Tensor] = None, **kwargs,
+    ) -> Dict[str, torch.Tensor]:
         """Predict logit labels
 
         This function offers two different modes: ~standard prediction~ and ~few-shot prediction~.
@@ -90,7 +91,7 @@ class MetaBaseline(nn.Module):
 
             logits = self.dist_fn(features, centroids, dim=2)
             logits = F.softmax(self.temperature * logits, dim=1)
-            outputs["logits"] = logits
+            outputs['logits'] = logits
 
         else:
 
@@ -98,10 +99,10 @@ class MetaBaseline(nn.Module):
             features = self.model(query)
             if self.class_matrix is None:
                 raise ValueError(
-                    f"Final classification layer was not initialized, please run init_pretraining before calling"
+                    'Final classification layer was not initialized, please run init_pretraining before calling',
                 )
 
             logits = self.class_matrix(features)
-            outputs["logits"] = logits
+            outputs['logits'] = logits
 
         return outputs

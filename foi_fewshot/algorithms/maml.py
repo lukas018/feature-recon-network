@@ -1,9 +1,7 @@
-from copy import deepcopy
 import numpy as np
 import torch
 import torch.nn.functional as F
-
-from learn2learn.algorithms import MAML
+from learn2learn.algorithms import l2l_maml
 
 
 class MAML:
@@ -11,7 +9,7 @@ class MAML:
 
     def __init__(self, model, fast_lr, update_steps=5, loss=F.cross_entropy):
 
-        self.model = MAML(model, fast_lr)
+        self.model = l2l_maml(model, fast_lr)
         self.update_steps = update_steps
         self.loss = loss
 
@@ -41,10 +39,10 @@ class ANIL:
     """Wrapper class for ANIL:"""
 
     def __init__(
-        self, feature_extractor, head, fast_lr, update_steps=5, loss=F.cross_entropy
+        self, feature_extractor, head, fast_lr, update_steps=5, loss=F.cross_entropy,
     ):
         self.feature_extractor = feature_extractor
-        self.head = MAML(head, fast_lr)
+        self.head = l2l_maml(head, fast_lr)
         self.update_steps = update_steps
         self.loss = loss
 

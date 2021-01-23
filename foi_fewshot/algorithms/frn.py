@@ -1,15 +1,12 @@
-import copy
-from operator import itemgetter
+from typing import Optional
+from typing import Tuple
+from typing import Union
 
 import torch
-import torch.utils.data as data
-import torch.nn as nn
-from torch import cdist
 import torch.nn.functional as F
+from torch import cdist
 from torch import linalg as LA
-from typing import Optional, Tuple
-
-from functools import partial
+from torch import nn
 
 
 class FeatureReconNetwork:
@@ -17,13 +14,13 @@ class FeatureReconNetwork:
 
     def __init__(
         self,
-        model,
-        num_channels,
-        dimensions,
-        alpha=1,
-        beta=1,
-        scale_factor=1,
-        temperature=1,
+        model: nn.Module,
+        num_channels: int,
+        dimensions: int,
+        alpha: float = 1.,
+        beta: float = 1.,
+        scale_factor: float = 1,
+        temperature: float = 1,
     ):
         """Feature Reconstruction Network
 
@@ -42,8 +39,8 @@ class FeatureReconNetwork:
         self.dimensions = dimensions
         self.temperature = torch.tensor(temperature)
 
-        self.class_matrices = None
-        self.cached_support = None
+        self.class_matrices: Optional[torch.Tensor] = None
+        self.cached_support: Optional[torch.Tensor] = None
         self.scale_factor = scale_factor
 
     def init_pretraining(self, num_classes: int):
@@ -53,23 +50,23 @@ class FeatureReconNetwork:
         """
 
         if (
-            self.class_matrices is not None
+            self.class_matrices is None
             or self.class_matrices.shape[0] == num_classes
         ):
             self.class_matrices = torch.randn(
-                (num_classes, self.dimensions, self.num_channels)
+                (num_classes, self.dimensions, self.num_channels),
             )
 
     def compute_support(
-        self, support: torch.Tensor, cache: bool = False
+        self, support: torch.Tensor, cache: bool = False,
     ) -> torch.Tensor:
         # Do few-shot prediction
         nway = support.shape[0]
 
         # [nway, k*r, d]
         support = (
-            model(support.flatten(0, 1))
-            .permutate(0, 3, 1, 2)
+            self.model(support.flatten(0, 1))
+            .permute(0, 3, 1, 2)
             .reshape(nway, -1, self.dimensions)
             * self.scale_factor
         )
@@ -80,7 +77,7 @@ class FeatureReconNetwork:
         return support
 
     def forward(
-        self, query: torch.Tensor, support: Optional[torch.Tensor] = None
+        self, query: torch.Tensor, support: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         """Predict labels using FRN.
 
@@ -103,27 +100,32 @@ class FeatureReconNetwork:
         # [bsz, r, d]
         bsz = query.shape[0]
         query = (
-            self.model(query).permutate(0, 3, 1, 2).flatten(1, 2) * self.scale_factor
+            self.model(query).permute(0, 3, 1, 2).flatten(1, 2) * self.scale_factor
         )
 
-        if support is not None or self.cached_support:
+        if support is not None or self.cached_support is not None:
             if support is not None:
                 support = self.compute_support(support)
-            elif self.cached_support is not None:
+            else:
                 support = self.cached_support
 
+            assert support is not None
             nway = support.shape[0]
 
             r = torch.exp(self.beta)
             lam = self.num_channels / (nway * self.dimensions) * torch.exp(self.alpha)
             recons = self._reconstruct(query, support, r, lam)
             aux_loss = self._aux_loss(
-                recons.reshape(bsz, nway, self.dimension, self.channels)
+                recons.reshape(bsz, nway, self.dimensions, self.num_channels),
             )
             logits = (self._predictions(recons, query), aux_loss)
         else:
             # Standard predictions
-            recons = self.reconstruct(query, self.class_matrix, 1, 1)
+            if self.class_matrices is None:
+                raise ValueError(
+                    'Class matrices were not initialized, please run init_pretraining before calling method without support data',
+                )
+            recons = self._reconstruct(query, self.class_matrices, 1., 1.)
             logits = self._predictions(recons, query)
 
         return logits
@@ -132,28 +134,22 @@ class FeatureReconNetwork:
         self,
         query: torch.Tensor,
         support: torch.Tensor,
-        r: torch.Tensor,
-        lam: torch.Tensor,
+        r: Union[torch.Tensor, float],
+        lam: Union[torch.Tensor, float],
     ) -> torch.Tensor:
-
         """Compute reconstructions according to paper
         :param query: [bsz, r, d]
         :param support: [way, support_shot* r, d]
         :param r: rho
         :param lam: lambda
-
         """
-        # Extract relenant shape information
-        nway = support.shape[0]
-        bsz = query.shape[0]
-        dimensions = query.shape[1]
 
         # Flatten everything
-        query = query.flatten(0, 1, 2)
+        query = query.flatten(0, 2)
         support = support.flatten(1, 2)
 
         reg = support.shape[1] / support.shape[2]
-        st = support.permutate(0, 2, 1)
+        st = support.permute(0, 2, 1)
         xtx = st @ support
         m_inv = (xtx + torch.eye(xtx.shape[-1]).unsqueeze(0) * (reg * lam)).inverse()
         hat = m_inv @ xtx
@@ -179,7 +175,7 @@ class FeatureReconNetwork:
         """
 
         def _loss(recons):
-            recons_t = recons.permutate(0, 2, 1)
+            recons_t = recons.permute(0, 2, 1)
             recons = recons.unsqueeze(1)
             res = recons @ recons_t
             nway = res.shape[0]
@@ -187,6 +183,7 @@ class FeatureReconNetwork:
 
             res *= mask
             loss = LA.norm(res.flatten(0, 2), 2).sum()
+            return loss
 
-        loss = torch.stack([_loss(r) for r in res]).mean()
+        loss = torch.stack([_loss(r) for r in recons]).mean()
         return loss

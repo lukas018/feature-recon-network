@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
-from .utils import initialize_taskloader, split_dataset, fast_metadataset
-
-from torchvision.transforms import (
-    Compose,
-    ToPILImage,
-    ToTensor,
-    RandomCrop,
-    RandomHorizontalFlip,
-    ColorJitter,
-    Normalize,
-)
 import learn2learn as l2l
+from torchvision.transforms import ColorJitter
+from torchvision.transforms import Compose
+from torchvision.transforms import Normalize
+from torchvision.transforms import RandomCrop
+from torchvision.transforms import RandomHorizontalFlip
+from torchvision.transforms import ToPILImage
+from torchvision.transforms import ToTensor
+
+from .utils import fast_metadataset
+from .utils import initialize_taskloader
+from .utils import split_dataset
+
+__all__ = ['fast_metadataset', 'initialize_taskloader', 'split_dataset']
 
 
 def mini_imagenet(root):
@@ -26,21 +28,21 @@ def mini_imagenet(root):
             RandomHorizontalFlip(),
             ToTensor(),
             normalize,
-        ]
+        ],
     )
     test_data_transforms = Compose(
         [
             normalize,
-        ]
+        ],
     )
     ds_train = l2l.vision.datasets.MiniImagenet(
-        root, mode="train", transform=train_data_transforms, download=True
+        root, mode='train', transform=train_data_transforms, download=True,
     )
     ds_val = l2l.vision.datasets.MiniImagenet(
-        root, mode="validation", transform=test_data_transforms, download=True
+        root, mode='validation', transform=test_data_transforms, download=True,
     )
     ds_test = l2l.vision.datasets.MiniImagenet(
-        root, mode="test", transform=test_data_transforms, download=True
+        root, mode='test', transform=test_data_transforms, download=True,
     )
 
     return ds_train, ds_val, ds_test

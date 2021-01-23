@@ -1,47 +1,42 @@
 #!/usr/bin/env python3
-import functools
 import copy
+import functools
+import random
+from collections import defaultdict
+from itertools import chain
+from operator import itemgetter
+
 import numpy as np
+from learn2learn.data import MetaDataset
+from learn2learn.data import TaskDataset
+from learn2learn.data.transforms import ConsecutiveLabels
+from learn2learn.data.transforms import KShots
+from learn2learn.data.transforms import LoadData
+from learn2learn.data.transforms import NWays
+from learn2learn.data.transforms import RandomKShots
+from learn2learn.data.transforms import RandomNWays
+from learn2learn.data.transforms import RemapLabels
+from learn2learn.vision.datasets import CUBirds200
+from learn2learn.vision.datasets import DescribableTextures
+from learn2learn.vision.datasets import FC100
+from learn2learn.vision.datasets import FGVCAircraft
+from learn2learn.vision.datasets import FullOmniglot
+from learn2learn.vision.datasets import MiniImagenet
+from learn2learn.vision.datasets import TieredImagenet
 from torch.utils.data import DataLoader
 from torch.utils.data._utils import collate
-from learn2learn.data.transforms import (
-    RandomNWays,
-    RandomKShots,
-    LoadData,
-    ConsecutiveLabels,
-    RemapLabels,
-    NWays,
-    KShots,
-)
-
-from learn2learn.data import MetaDataset, TaskDataset
-from learn2learn.vision.datasets import (
-    MiniImagenet,
-    FullOmniglot,
-    CUBirds200,
-    FC100,
-    TieredImagenet,
-    FGVCAircraft,
-    DescribableTextures,
-)
 
 from ..utils import prepare_fewshot_batch
 
 DATASET_ATTRIBUTES = {
-    MiniImagenet: ["x", "y"],
-    FullOmniglot: ["dataset"],
-    CUBirds200: ["data"],
-    FC100: ["images", "labels"],
-    TieredImagenet: ["images", "labels"],
-    FGVCAircraft: ["data"],
-    DescribableTextures: ["data"],
+    MiniImagenet: ['x', 'y'],
+    FullOmniglot: ['dataset'],
+    CUBirds200: ['data'],
+    FC100: ['images', 'labels'],
+    TieredImagenet: ['images', 'labels'],
+    FGVCAircraft: ['data'],
+    DescribableTextures: ['data'],
 }
-
-from operator import itemgetter
-from collections import defaultdict
-import random
-from itertools import chain
-from itertools import starmap
 
 
 def prepare_task(batch, kquery):
@@ -50,10 +45,10 @@ def prepare_task(batch, kquery):
         kquery,
     )
     return {
-        "query": query_data,
-        "query_labels": query_labels,
-        "support": support_data,
-        "support_labels": support_labels,
+        'query': query_data,
+        'query_labels': query_labels,
+        'support': support_data,
+        'support_labels': support_labels,
     }
 
 
@@ -73,7 +68,7 @@ def fewshot_metabatch_collate(tasks):
 
 
 def initialize_taskloader(
-    ds, nways, kshots, kquery, num_tasks, num_workers, batch_size=1, shuffle=False
+    ds, nways, kshots, kquery, num_tasks, num_workers, batch_size=1, shuffle=False,
 ):
     """Returns a fewshot classificatino task data loader
 
@@ -133,7 +128,7 @@ def _classes_split(y, frac):
         pivot = int(len(values) * frac)
         return values[:pivot], values[pivot:]
 
-    split1, split2 = (*zip(*map(sampler, idx_groups.values())),)
+    split1, split2 = (*zip(*map(sampler, idx_groups.values())),)  # type: ignore
     return np.array(list(chain(*split1))), np.array(list(chain(*split2)))
 
 
@@ -164,9 +159,9 @@ def split_dataset(ds, frac=0.95, even_class_dist=False, custom_attrs=None):
     else:
         try:
             attrs = DATASET_ATTRIBUTES[type(ds)]
-        except:
+        except ValueError:
             ValueError(
-                f"Can't split dataset of type: {type(ds)}\nPlease provide *custom_attrs*"
+                f"Can't split dataset of type: {type(ds)}\nPlease provide *custom_attrs*",
             )
 
     if even_class_dist:
@@ -198,8 +193,8 @@ def split_dataset(ds, frac=0.95, even_class_dist=False, custom_attrs=None):
 
     # Since we might mess up the bookkeeping we need to recompute it later
     def remove_bookkeeping(ds):
-        if hasattr(ds, "_bookkeeping_path"):
-            delattr(ds, "_bookkeeping_path")
+        if hasattr(ds, '_bookkeeping_path'):
+            delattr(ds, '_bookkeeping_path')
 
     remove_bookkeeping(ds1)
     remove_bookkeeping(ds2)

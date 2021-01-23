@@ -1,21 +1,23 @@
-from typing import Optional, List, Dict
-
-from dataclasses_json import dataclass_json
 from dataclasses import dataclass
+from typing import Dict
+from typing import List
+from typing import Optional
+
 import torch
 import torch.nn as nn
-from torch.utils.data._utils import collate
+from dataclasses_json import dataclass_json
 from torch.utils.data import DataLoader
+from torch.utils.data._utils import collate
 
-from .trainer_arguments import FewshotArguments
 from ..data import initialize_taskloader
+from .trainer_arguments import FewshotArguments
 
 
 def _custom_collate(batches):
     """Simple collate function that wraps standard image, labels pairs
     to a dict: query -> images,  query_labels -> labels
     """
-    records = [{"query": images, "query_labels": labels} for images, labels in batches]
+    records = [{'query': images, 'query_labels': labels} for images, labels in batches]
     return collate.default_collate(records)
 
 
@@ -37,7 +39,7 @@ def create_dataloader(dataset, args):
         batch_size=batch_size,
         num_workers=num_workers,
         collate_fn=_custom_collate,
-        shuffle=True
+        shuffle=True,
     )
     return dl
 
@@ -106,7 +108,7 @@ class TrainerState:
     max_steps: int = 0
     num_train_epochs: int = 0
     num_update_steps_per_epoch: int = 0
-    log_history: List[Dict[str, float]] = None
+    log_history: Optional[List[Dict[str, float]]] = None
     best_metric: Optional[float] = None
     best_model_checkpoint: Optional[str] = None
     is_local_process_zero: bool = True

@@ -1,21 +1,15 @@
 from torch import optim
-from tqdm import tqdm
 
-from foi_fewshot.models import ResNet12
-from foi_fewshot.models import ResNet12
-from foi_fewshot.data import mini_imagenet, split_dataset
 from foi_fewshot.algorithms import MetaBaseline
-from foi_fewshot.trainers import (
-    PreTrainer,
-    FewshotTrainer,
-    TrainingArguments,
-    FewshotArguments,
-    PretrainArguments,
-    EvalTaskGenerator,
-    EvaluationStrategy
-)
-from foi_fewshot.trainers.trainer_utils import create_taskloader
-from foi_fewshot.trainers.callbacks import WriterCallback
+from foi_fewshot.data import mini_imagenet
+from foi_fewshot.data import split_dataset
+from foi_fewshot.models import ResNet12
+from foi_fewshot.trainers import EvalTaskGenerator
+from foi_fewshot.trainers import EvaluationStrategy
+from foi_fewshot.trainers import FewshotArguments
+from foi_fewshot.trainers import FewshotTrainer
+from foi_fewshot.trainers import PretrainArguments
+from foi_fewshot.trainers import PreTrainer
 
 # Initialize the network backcone
 model = ResNet12()
@@ -23,11 +17,11 @@ model = ResNet12()
 meta_baseline = MetaBaseline(model)
 
 # Initialize the datasets
-ds_train, ds_novel, ds_test = mini_imagenet("~/Downloads")
+ds_train, ds_novel, ds_test = mini_imagenet('~/Downloads')
 ds_train, ds_base = split_dataset(ds_train, frac=0.95, even_class_dist=True)
 
 pt_args = PretrainArguments(
-    modeldir="~/Downloads/models/",
+    modeldir='~/Downloads/models/',
     batch_size=8,
     gradient_accumulation_steps=1,
     num_epochs=100,
@@ -36,7 +30,7 @@ pt_args = PretrainArguments(
 )
 
 fs_args = FewshotArguments(
-    modeldir="~/Downloads/models/",
+    modeldir='~/Downloads/models/',
     nways=2,
     ksupport=1,
     kquery=1,
@@ -47,23 +41,23 @@ fs_args = FewshotArguments(
     num_workers=10,
     gradient_accumulation_steps=1,
     metric_for_best_model='eval-novel-loss',
-    evaluation_strategy=EvaluationStrategy.STEPS
+    evaluation_strategy=EvaluationStrategy.STEPS,
 )
 
 eval_taskgen = EvalTaskGenerator(fs_args)
-eval_taskgen.add("base", ds_base)
-eval_taskgen.add("novel", ds_novel)
-eval_taskgen.add("base-class", ds_base, pt_args)
+eval_taskgen.add('base', ds_base)
+eval_taskgen.add('novel', ds_novel)
+eval_taskgen.add('base-class', ds_base, pt_args)
 
-breakpoint()
-# Prepare the model for standard pretraining
+
 def lr_update(epoch):
     if 80 <= epoch:
         return 0.1
-    elif  90 <= epoch:
+    elif 90 <= epoch:
         return 0.01
     else:
         return 1.0
+
 
 # Init baseline
 meta_baseline.init_pretraining(640, 64)
@@ -74,12 +68,12 @@ pre_trainer = PreTrainer(
     pt_args,
     ds_train,
     eval_taskgen,
-    optimizers=(optimizer, lr_scheduler)
+    optimizers=(optimizer, lr_scheduler),
 )
 pre_trainer.train()
 
 # Perform fewshot training
 fs_trainer = FewshotTrainer(
-    meta_baseline, fs_args, ds_train, eval_taskgen
+    meta_baseline, fs_args, ds_train, eval_taskgen,
 )
 fs_trainer.train()

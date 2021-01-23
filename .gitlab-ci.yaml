@@ -1,0 +1,2 @@
+test:
+  image: ai.foi.se:5000/foi-ci-python:1.0
