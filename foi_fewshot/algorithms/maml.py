@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from learn2learn.algorithms import l2l_maml
 
 
-class MAML:
+class MAML(nn.Module):
     """Wrapper class for MAML"""
 
     def __init__(self, model, fast_lr, update_steps=5, loss=F.cross_entropy):
@@ -35,7 +35,7 @@ class MAML:
         return logits
 
 
-class ANIL:
+class ANIL(nn.Module):
     """Wrapper class for ANIL:"""
 
     def __init__(

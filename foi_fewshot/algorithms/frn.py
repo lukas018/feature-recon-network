@@ -171,7 +171,11 @@ class FeatureReconNetwork:
         return (query @ hat) * r
 
     def _predictions(self, recons, original):
-        """Computes the (normalized) logits from the reconstruction and original features"""
+        """Computes the (normalized) logits from the reconstruction and original features
+
+        :param recons: The reconstructed features of the query set
+        :param original: The original input images
+        """
 
         n = recons.shape[0]
         original = original.unsqueeze(1)
