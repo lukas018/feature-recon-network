@@ -8,12 +8,24 @@ import torch.nn.functional as F
 
 
 class MetaBaseline(nn.Module):
-    """Implementation of ~A New  Meta-Maseline~ : https://arxiv.org/pdf/2003.04390.pdf
+    """Implementation of ~A New Meta-Maseline~ :
+    https://arxiv.org/pdf/2003.04390.pdf
 
-    A metric based fewshot learner which uses pre-training
+    A metric based fewshot learner which uses pre-training via standard image
+    classification over the base classes to initialize feature extractor.  It
+    then employs a second meta-learning phase, in which the model trains on
+    various fewshot-learning tasks.
     """
 
     def __init__(self, model, temperature=1, dist_fn: Callable = F.cosine_similarity):
+        """
+        :param model: Feature extractor to wrap, e.g. a ResNet12 without a
+            classification head.
+        :param temperature: Initial temperature value for the softmax scaling
+            function
+        :param dist_fn: Distance function used to compute the distance
+            between samples and class centriods.
+        """
 
         super().__init__()
         self.model = model
@@ -23,8 +35,15 @@ class MetaBaseline(nn.Module):
         self.cached_centroids: Optional[torch.Tensor] = None
 
     def init_pretraining(self, dimensions: int, num_classes: int):
-        """Initialize the FRN for pre-training
+        """Initialize the new meta-baseline network for pre-training
 
+        The new meta-baseline network uses a standard linear layer (with bias)
+        to perform predictions during the pretraining phase.  This method
+        initializes that layer.
+
+        :param dimensions: The expected output size of the model (specified in
+            the constructor) which this model wraps.  This is needed to create
+            the linear layer.
         :param num_classes: The number of classes in the pretraining dataset
         """
 
@@ -32,13 +51,13 @@ class MetaBaseline(nn.Module):
             self.class_matrix = nn.Linear(dimensions, num_classes)
 
     def compute_centroids(self, support, cache=False):
-        """Computes the centroids of the given support imgages
+        """Computes (and saves) the class centroids of the support images
 
-
-        :param support: Tensor of size [n, k, h, w, c]
-            It is assumed that the images is grouped with regards to class the classes
-        :param cache: Set to true to cache the centriods to use for later fewshot learning
-
+        :param support: Tensor of size [n, k, h, w, c] It is assumed that the
+            images is grouped with regards to class the classes
+        :param cache: Set to true to cache/save the centriods to use for later
+            fewshot clasification.  This is useful if one wants to save a model
+            trained on a particular fewshot learning task.
         """
 
         nways = support.shape[0]
@@ -56,20 +75,26 @@ class MetaBaseline(nn.Module):
     def forward(
         self, query: torch.Tensor, support: Optional[torch.Tensor] = None, **kwargs,
     ) -> Dict[str, torch.Tensor]:
-        """Predict logit labels
+        """
+        Perform a forward pass as specified by the given query- and support set.
 
-        This function offers two different modes: ~standard prediction~ and ~few-shot prediction~.
-        Standard prediction acts standard image classification with logits of n-classes.
-        This mode is enabled by default and is meant to be used during the pre-training phase outlined in the original paper.
+        Two different forward-pass modes are available: ~standard
+        classification~ and ~few-shot classification~.  Standard classification
+        is enabled by first running the init_pretraining method, where the
+        number of classes ~n~ is specified, and then by only providing the query
+        images.  The query images are then classified task over ~n~ classes.
 
-        Few-shot prediction is used when support-images are given as arguments.
-        Support images are a set of n x k images (n classes, with k examples in each)
-        and is used to compute the class representation matrices used for prediction.
+        Fewshot prediction is instead used when support set are specified or
+        when compute_centriods have been called with cache=True.  The support
+        set should consist of n x k images (n classes, with k examples in each).
+        The query images are then classified over the ~n~ way task specified by
+        the support set.
 
-        :param query: Set of images such that shape=(meta_bsz, bsz, channels, h, w)
-        :param support: Set of images such that shape=(bsz, channels, k, h,  w)
+        :param query: Set of images such that shape=[meta_bsz,bsz,channels,h,w]
+        :param support: Set of images such that shape=[bsz,channels, k, h, w]
 
-        :return: Prediction for each imput image. Logit dimension depends on mode-used.
+        :return: Prediction for each imput image.  Logit dimension depends on
+                 mode-used.
         """
 
         bsz = query.shape[0]

@@ -5,8 +5,9 @@ class ProtypicalNetwork(MetaBaseline):
     """Simple implementation of prototypical network:
     https://papers.nips.cc/paper/2017/file/cb8da6767461f2812ae4290eac7cbc42-Paper.pdf
 
-
-    Unlike new Meta-Baseline this method doesn't utilize normal classification pretraining
+    THis approach shares many similarities to other metric-learning based
+    approaches.  However, unlike e.g. new Meta-Baseline or FRN this method
+    doesn't utilize any pretraining.
     """
 
     def __init__(self, model):

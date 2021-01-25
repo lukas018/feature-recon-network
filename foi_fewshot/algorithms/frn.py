@@ -25,7 +25,8 @@ class FeatureReconNetwork:
         """Feature Reconstruction Network
 
         :param model: The feature extractor (any cnn of equivelent)
-        :param num_channels: The number of output channels on the final layer of model
+        :param num_channels: The number of output channels on the final layer of
+            model
         :param dimensions: Height x width of the feature maps outputed by model
         :param alpha: Initial value for learnable parameter alpha
         :param beta: Initial value for learnable parameter beta
@@ -46,7 +47,7 @@ class FeatureReconNetwork:
     def init_pretraining(self, num_classes: int):
         """Initialize the learner for pre-training
 
-        :param num_classes: The number of classes in the pretraining dataset
+        :param num_classes: The number of classes ~n~ in the pretraining dataset
         """
 
         if (
@@ -60,6 +61,15 @@ class FeatureReconNetwork:
     def compute_support(
         self, support: torch.Tensor, cache: bool = False,
     ) -> torch.Tensor:
+        """Compute and return the class representations based on the given
+        support set.
+
+        :param support: The set of support images [n,k]
+        :param cache: Set to true to save the support representation.  This will
+            make the model perform fewshot classification during the forward
+            pass using the currently specified classes even if no support images
+            are provided.
+        """
         # Do few-shot prediction
         nway = support.shape[0]
 
@@ -137,12 +147,15 @@ class FeatureReconNetwork:
         r: Union[torch.Tensor, float],
         lam: Union[torch.Tensor, float],
     ) -> torch.Tensor:
-        """Compute reconstructions according to paper
+        """Compute feature reconstructions of the query images
+
+
         :param query: [bsz, r, d]
         :param support: [way, support_shot* r, d]
         :param r: rho
         :param lam: lambda
         """
+        # this code snippet is copied more or less straight from the paper's appendix
 
         # Flatten everything
         query = query.flatten(0, 2)
