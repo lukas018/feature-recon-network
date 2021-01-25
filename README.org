@@ -55,4 +55,69 @@ Fewshot learners which implements this simple API can then be used in the Fewsho
 
 * Pretraining
 Certain fewshot classification methods both metric based (e.g. FRN) and gradient based (e.g. MTL) requires pretraining a feature classifier on the set of base classes. The Pretrainer trainer class can be used for this endeavor.
-The pretrainer is a subclass of the FewshotTrainer. This might seem unintuitive since the fewshot setup is more specific than th more general pre-training setup. However, one of the main advantages of this relationship is that the pretrainer can still perform evaluation using fewshot-tasks, which can provide insights into how pretraining affects fewshot training (similarly to what was done in https://arxiv.org/pdf/2003.04390.pdf).
+The pretrainer is a subclass of the FewshotTrainer. This might seem unintuitive since the fewshot setup is more specific than the pretraining setup. However, one of the main advantages of this relationship is that the pretrainer can still perform evaluation using fewshot-tasks, which can provide insights into how pretraining affects fewshot training (similarly to what was done in https://arxiv.org/pdf/2003.04390.pdf).
+
+
+* Contributing
+In order to make this project easy to maintain here are some rules, suggestions and tips for future contributors.
+
+** Branching
+Pushing directly to the master branch is highly discouraged and should/will be disabled by default in this project.
+Instead, contributions should follow the feature-branch workflow outlined [[https://www.atlassian.com/git/tutorials/comparing-workflows/feature-branch-workflow][here]].
+This is to both allow multiple people to work seamlessly on the project without having to butt heads with merge conflict.
+It also makes it easier to
+
+Use the feature/[description-of-feature] naming convention when starting a new feature.
+For hotfixing, i.e. you want to make a small fix to a bug you discovered, use the hotfix/[description-of-hotfix] naming convention.
+Do pull/merge-request to the master-branch when you are satisfied with your code, and have added your tests and formatted the code and wait for someone to review it.
+
+*** Commit Messages
+Commit messages should be informative in order for the reviewer to be able to deduce the pupose of the commit.
+Writing "update" or "updated" in a commit-message would in a better world be rewarded with a.
+
+Optimally, a commit message should have a descriptive summary line of at most 72 characters, and may be followed by a blank line and more extensive explanation of the commit. This makes it clearer both for the coder, as well as the reviewer, or anyone else who may try to find a specific commit.
+
+A tips is to use a good git-interface tool, since this makes it easier to get an overview over commits. Allowing you to better control which changes to state for commit, stage parts of files, write better and well-formated commit messages etc.
+Personally, I use and recommends Emac's Magit, but most python editors have an equivalent tools for managing version control.
+
+** Testing
+Testing is a convenient way of checking the correctness of our code
+This project uses gitlab's continuous integration (ci) to setup testing environments.
+
+We use pytest (which is much more flexible than the default unittest framework) to perform our testing.
+
+If you add some new functionality (e.g. a new fewshot algorithm) to the project you are encouraged to create suitable testcases.
+This will not only aid in assuring the correctness of your code but also aid other maintainers to see how your code should be used in practice. Making it easier to e.g. inspect merge-request.
+
+Since the tests (currently) run on a machine without GPU support and with limited disk-space, contributors are advised to take some shortcuts when creating tests. It is for example not advised to train an entire machine learning model in the test or download the entirety of miniImagenet during testing.
+
+** Docstrings and Documentation
+This projects relies on Sphinx to auto-generate most of the documentations.
+This requires added methods and modules to be well document with suitable doc-strings.
+The project uses the sphinx docstring format as default.
+
+Please see the Sphinx home page for an outline of the formatting result or inspect the code in here for examples.
+
+** Automatic Error-checking and Code Formatting
+
+In addition to testing it is also adviced to use automatic error checking
+In order to keep code clean and easy to read it is important to keep a consistent style throughout the document.
+
+For this endeavor we can make use of the convenient [[https://pre-commit.com/][pre-commit]] tool.
+Pre-commit can be configured to run a list of checks before you can commit your code, preventing you from adding erroneous, bad-looking code.
+It can also be run separately as a cli-tool to clean up your code
+
+This repo specifies a set of pre-commit hooks in ~.pre-commit-config.yaml~ which performs code checks, as well as code formatting.
+
+Pre-commit can be installed as follows:
+#+begin_src shell
+pip install pre-commit
+pre-commit run -all-files
+#+end_src
+
+Below are some examples of hooks employed in this project
+
+- Code Formatting uses [[https://github.com/psf/black][Black]] with the standard max-line length of 88.
+- Static code checking using [[https://github.com/peter-evans/autopep8][autopep8]] to find obvious errors in your code, such as missing import statements, undefined variables etc.
+- Static type checking via [[https://github.com/python/mypy][mypy]]: Type hints have been a part of python since version 3.8. This allows us to check the correctness of our program by making sure functions does not receive invalid input or that a value may be set to None when we want to access its attributes. I would suggest to try to use types as much as possible in function signatures since it can help in catching a variety of errors.
+- In addition, there exist a set of simple checks which can help in preventing annoying errors. Examples include preventing commit of large files, preventing commits of unresolved merge-conflicts, preventing commits of code with debugging statements in it, such as ~breakpoint()~, checking the syntax in you json and yaml-files, etc.
