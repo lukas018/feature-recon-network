@@ -118,10 +118,16 @@ def initialize_taskloader(
 
 
 def _classes_split(y, frac):
-    """Helper function for spliting items while retaining class balance
-    Returns"""
+    """Split a list of labels into two splits such that each label-type is equally
+    represented in both splits
 
-    idx_groups = _idx_groupby(y, lambda x: x)
+    :param y: List of labels
+    :param frac: The fraction of examples to put in the first split
+
+    :returns: Indices over the two splits
+    """
+
+     idx_groups = _idx_groupby(y, lambda x: x)
 
     def sampler(values):
         random.shuffle(values)
