@@ -91,19 +91,27 @@ class FeatureReconNetwork:
     ) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         """Predict labels using FRN.
 
-        This function offerst two different modes: standard prediction and few-shot predictions.
-        Standard prediction acts standard image classification with logits of n-classes.
-        This mode is enabled by default and is meant to be used during the pre-training phase outlined in the original paper.
+        This function offerst two different modes: standard prediction and
+        few-shot predictions.  Standard prediction acts standard image
+        classification with logits of n-classes.  This mode is enabled by
+        default and is meant to be used during the pre-training phase outlined
+        in the original paper.
 
-        Few-shot prediction is used when support-images are given as arguments or compute_support
-        has been called with cache set to True.
-        Support images are a set of n x k images (n classes, with k examples in each)
-        and is used to compute the class representation matrices used for prediction.
+        Few-shot prediction is used when support-images are given as arguments
+        or compute_support has been called with cache set to True.  Support
+        images are a set of n x k images (n classes, with k examples in each)
+        and is used to compute the class representation matrices used for
+        prediction.
 
         :param query: Set of images such that shape=(bsz x h x w x channels)
         :param support: Set of images such that shape=(n x k x h x w x channels)
 
-        :return: Prediction for each imput image. Logit dimension depends on mode-used.
+        :raises ValueError: If no support images are provided and the model
+            neither have a cached set of class representations nor have called
+            init_pretraining
+
+        :returns: Prediction for each query image.  Logit dimension depends on
+                 prediction mode-used.
         """
 
         # Compute and flatten the input features

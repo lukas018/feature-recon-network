@@ -93,8 +93,12 @@ class MetaBaseline(nn.Module):
         :param query: Set of images such that shape=[meta_bsz,bsz,channels,h,w]
         :param support: Set of images such that shape=[bsz,channels, k, h, w]
 
-        :return: Prediction for each imput image.  Logit dimension depends on
-                 mode-used.
+        :raises ValueError: If no support images are provided and neither the
+            init_pretrianing have been called nor a set of centriods have been
+            cached.
+
+        :returns: Prediction for each quey image. Logit dimension depends on
+                 prediction mode-used.
         """
 
         bsz = query.shape[0]
