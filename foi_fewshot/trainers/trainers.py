@@ -27,7 +27,7 @@ from .trainer_utils import create_taskloader
 from .trainer_utils import MetabatchWrapper
 from .trainer_utils import TrainerControl
 from .trainer_utils import TrainerState
-
+from .trainer_utils import create_dataloader
 
 DEFAULT_CALLBACKS = [DefaultFlowCallback, ProgressCallback]
 DEFAULT_MODEL_PREFIX = 'checkpoint'
@@ -611,6 +611,7 @@ class FewshotTrainer:
         :param n_trials: Number of trials to perform hp search
         :param compute_objective: Objective to minimize during hp search
         :param direction: If objective should use `minimize` or `maximize` to
+
             determine the optimal setting.
 
         :return: the best parameters found during hp search
@@ -638,10 +639,18 @@ class FewshotTrainer:
         :param epoch: The current epoch
         :param metrics: Metrics dictionary
         """
-         if trial is None:
+        if trial is None:
             return
         self.objective = self.compute_objective(metrics.copy())
         import optuna
         trial.report(self.objective, epoch)
         if trial.should_prune():
             raise optuna.TrialPruned()
+
+
+class PreTrainer(FewshotTrainer):
+    """Trainer wrapper for performing image classifiaction pre-training
+    """
+
+    def get_train_dataloader(self):
+        return create_dataloader(self.train_dataset, self.args)

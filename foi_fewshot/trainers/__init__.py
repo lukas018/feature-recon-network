@@ -1,5 +1,4 @@
-from .fewshot_trainer import FewshotTrainer
-from .pre_trainer import PreTrainer
+from .fewshot_trainer import FewshotTrainer, PreTrainer
 from .trainer_arguments import EvaluationStrategy
 from .trainer_arguments import FewshotArguments
 from .trainer_arguments import PretrainArguments
