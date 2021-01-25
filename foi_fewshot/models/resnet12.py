@@ -55,10 +55,7 @@ class Block(nn.Module):
 
 
 class ResNet12(nn.Module):
-    """Initialize the ResNet12 model
-
-    ResNet12 have been used
-    """
+    """ResNet12 Model"""
 
     def __init__(self, channels=[64, 160, 320, 640]):
         super().__init__()
