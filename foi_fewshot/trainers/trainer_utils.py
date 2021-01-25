@@ -153,13 +153,19 @@ def multi_size_collate(batches):
 
 
 class MetabatchWrapper(nn.Module):
-    """Simple Wrapper to process Meta-batches, i.e. a collection of tasks"""
+    """
+    Simple Wrapper to process meta-batches, i.e. collections of tasks/batches
+    rather than a single batch
+    """
 
     def __init__(self, model):
         super().__init__()
         self.model = model
 
     def forward(self, **kwargs):
+        """Performs forward step over a set of tasks
+        """
+
         keys = list(kwargs.keys())
         records = [{k: kwargs[k][i] for k in keys} for i in range(len(kwargs[keys[0]]))]
         outputs = [self.model(**record) for record in records]

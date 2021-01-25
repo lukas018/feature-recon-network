@@ -17,24 +17,25 @@ from learn2learn.data import TaskDataset
 from torch.nn.parallel import DataParallel
 from torch.nn.parallel import DistributedDataParallel
 
-from ..util import fast_metadataset
+from ..data import fast_metadataset
+
 from .callbacks import CallbackHandler
 from .callbacks import DefaultFlowCallback
 from .callbacks import ProgressCallback
 from .hyperparameter_search import run_hp_search
 from .trainer_arguments import SchedulerUpdateStrategy
+from .trainer_utils import create_dataloader
 from .trainer_utils import create_taskloader
 from .trainer_utils import MetabatchWrapper
 from .trainer_utils import TrainerControl
 from .trainer_utils import TrainerState
-from .trainer_utils import create_dataloader
 
 DEFAULT_CALLBACKS = [DefaultFlowCallback, ProgressCallback]
 DEFAULT_MODEL_PREFIX = 'checkpoint'
 logger = logging.getLogger(__name__)
 
 
-def default_lr_scheduler(model, optimizer, args):
+def _default_lr_scheduler(model, optimizer, args):
     """A learning rate scheduler which always output the same result
     """
 
@@ -46,7 +47,7 @@ def default_lr_scheduler(model, optimizer, args):
     return lr_scheduler
 
 
-def default_compute_objective(metrics, keyword='eval-loss'):
+def _default_compute_objective(metrics, keyword='eval-loss'):
     metrics = copy.deepcopy(metrics)
     loss = metrics.pop(
         'eval_loss', None,
@@ -114,7 +115,7 @@ class FewshotTrainer:
             )
 
         if self.lr_scheduler is None:
-            self.lr_scheduler = default_lr_scheduler(
+            self.lr_scheduler = _default_lr_scheduler(
                 self.model, self.optimizer, self.args,
             )
 
@@ -224,21 +225,23 @@ class FewshotTrainer:
             setattr(self.args, key, value)
             logger.info(f'Trial: {trial.params}')
 
-    def load_checkpoint(self, modeldir):
-        """Load the trainer state from checkpoint"""
+    def load_checkpoint(self, checkpoint_dir):
+        """Load the trainer state from checkpoint
+        :param checkpoint_dir: directory where the checkpoint is located
+        """
 
-        modeldir = Path(modeldir).expanduser()
-        self.model.load_state_dict(torch.load(Path(modeldir, 'model.pkl')))
+        checkpoint_dir = Path(checkpoint_dir).expanduser()
+        self.model.load_state_dict(torch.load(Path(checkpoint_dir, 'model.pkl')))
 
-        optimizer_path = Path(modeldir, 'optimizer.pkl')
+        optimizer_path = Path(checkpoint_dir, 'optimizer.pkl')
         if optimizer_path.is_file():
             self.optimizer.load_state_dict(torch.load(optimizer_path))
 
-        scheduler_path = Path(modeldir, 'scheduler.pkl')
+        scheduler_path = Path(checkpoint_dir, 'scheduler.pkl')
         if scheduler_path.is_file():
             self.lr_scheduler.load_state_dict(torch.load(scheduler_path))
 
-        state_path = Path(modeldir, 'state.json')
+        state_path = Path(checkpoint_dir, 'state.json')
         if state_path.is_file():
             with open(state_path, 'w') as fh:
                 self.state = TrainerState.fromdict(json.load(fh))
@@ -614,7 +617,7 @@ class FewshotTrainer:
 
             determine the optimal setting.
 
-        :return: the best parameters found during hp search
+        :returns: the best parameters found during hp search
         """
 
         self.hp_space = hp_space
@@ -623,10 +626,10 @@ class FewshotTrainer:
             self.compute_objective = compute_objective
         elif isinstance(compute_objective, str):
             self.compute_objective = functools.partial(
-                default_compute_objective, key=compute_objective,
+                _default_compute_objective, key=compute_objective,
             )
         else:
-            self.compute_objective = default_compute_objective
+            self.compute_objective = _default_compute_objective
 
         best_run = run_hp_search(self, n_trials, direction, **kwargs)
         return best_run
@@ -653,4 +656,7 @@ class PreTrainer(FewshotTrainer):
     """
 
     def get_train_dataloader(self):
+        """Returns the DataLoader used during training of the model
+        :returns: DataLoader for the training objective
+        """
         return create_dataloader(self.train_dataset, self.args)

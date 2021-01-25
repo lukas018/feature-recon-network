@@ -127,7 +127,7 @@ def _classes_split(y, frac):
     :returns: Indices over the two splits
     """
 
-     idx_groups = _idx_groupby(y, lambda x: x)
+    idx_groups = _idx_groupby(y, lambda x: x)
 
     def sampler(values):
         random.shuffle(values)
