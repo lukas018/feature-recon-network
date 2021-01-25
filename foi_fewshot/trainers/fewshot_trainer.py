@@ -58,7 +58,7 @@ def default_compute_objective(metrics, keyword='eval-loss'):
 class FewshotTrainer:
     """FewshotTrainer
 
-    General trainer wrapper for few-shot trainers
+    General trainer wrapper for few-shot training
     """
 
     def __init__(
@@ -75,9 +75,12 @@ class FewshotTrainer:
         :param model: Input model
         :param train_ds: Training dataset
         :param args: Training arguments
-        :param eval_args: Optional special argument for evaluation
-        :param base_eval_dataset: Dataset of base classes with novel samples
-        :param novel_eval_dataset: Dataset with novel classes
+        :param eval_task_generator: Task generator for evaluation tasks
+        :param optimizers: Tuple of optimizer and lr_scheduler
+        :param callbacks: List of callback object that will be called during
+            training
+        :param model_init: Optional function for initializing the model
+            argument.  Required when performing hyper-parameter search.
         """
 
         self.model = model
@@ -100,6 +103,9 @@ class FewshotTrainer:
         self.control = TrainerControl()
 
     def create_optimizer_and_scheduler(self):
+        """Initializes optimizer and scheduler if not already done
+        """
+
         if self.optimizer is None:
             lr = self.args.learning_rate
             momentum = self.args.momentum
@@ -113,6 +119,16 @@ class FewshotTrainer:
             )
 
     def _envelop_model(self, model, fewshot_mode=True):
+        """Wraps and returns the specified model such that it can perform either
+        fewshot or standard classification
+
+        :param model: Input model to wrap
+        :param fewshot_mode: If true the model is wrapped in a meta-batch
+            wrapping class to allow for accepting multiple tasks simultaniously
+
+        :returns: The wrapped model
+        """
+
         if fewshot_mode:
             model = MetabatchWrapper(model)
 
@@ -127,7 +143,14 @@ class FewshotTrainer:
         return learner
 
     def save_checkpoint(self, modeldir=None, trial=None, metrics=None):
-        """Save the current state of the model"""
+        """Save the current state of the model as checkpoint
+
+        :param modeldir: Directory to save model to
+        :param trial: Optuna trial object if hyperparameter search is performed
+        :param metrics: If metrics are provided and
+            self.args.metric_for_best_model is set to true, then the best
+            performing model is saved to the trainer state.
+        """
 
         modeldir = modeldir if modeldir is not None else self.args.modeldir
         modeldir = Path(modeldir).expanduser()
@@ -180,6 +203,10 @@ class FewshotTrainer:
             fh.write(self.state.to_json())
 
     def _hp_search_setup(self, trial):
+        """Initializes the trainer and the model using an optuna hyperparameter trial object
+
+        :param trial: Trial object used to sample learning parameters
+        """
         self._trial = trial
         if trial is None:
             return
@@ -218,6 +245,7 @@ class FewshotTrainer:
 
     def scheduler_step(self):
         """Runs scheduler at the current update step"""
+
         if self.args.scheduler_update_strategy == SchedulerUpdateStrategy.STEPS or (
             self.args.scheduler_update_strategy == SchedulerUpdateStrategy.EPOCH
             and self.state.num_update_steps_per_epoch != 0
@@ -227,7 +255,14 @@ class FewshotTrainer:
             self.lr_scheduler.step()
 
     def training_step(self, model, inputs):
-        """"""
+        """Perform a single training step
+
+        This includes doing a forward step using the model, computing the loss,
+        scaling the loss, and then backpropagating the gradient
+
+        :param model: model used for forward pass
+        :param inputs: dictionary with input tensors
+        """
 
         model.train()
         outputs = model(**inputs)
@@ -246,6 +281,12 @@ class FewshotTrainer:
         return loss.detach()
 
     def train(self, modeldir=None, trial=None):
+        """Train the model
+
+        :param modeldir: If specified the trainer will load model checkpoints, trainer state etc from the modeldir.
+        :param trial: optuna trial object used during hyperparameter search.
+        :returns:
+        """
 
         self._hp_search_setup(trial)
 
@@ -347,11 +388,21 @@ class FewshotTrainer:
         )
 
     def optimizer_step(self, loss):
+        """Peform a step using the trainer's optimizer
+
+        :param loss: The current loss
+
+        """
         # loss.backward()
         self.optimizer.step()
         self.optimizer.zero_grad()
 
     def log(self, logs):
+        """Save the logs to the current state
+
+        :param logs: Log dict
+        """
+
         if self.state.epoch is not None:
             logs['epoch'] = round(self.state.epoch, 2)
 
@@ -362,6 +413,15 @@ class FewshotTrainer:
         self.state.log_history.append(output)
 
     def _maybe_log_save_evaluate(self, tr_loss, model, trial, epoch):
+        """Maybe log, maybe save, maybe evaluate depending on the state of the
+        traners.control object
+
+        :param tr_loss: The accumulated loss since last save
+        :param model: The model
+        :param trial: Optional optuna hyperparameter search trial
+        :param epoch: The current epoch, specified as a float
+        """
+
         if self.control.should_log:
             logs: Dict[str, float] = {}
             tr_loss_scalar = tr_loss.item()
@@ -395,6 +455,13 @@ class FewshotTrainer:
         model,
         inputs,
     ):
+        """Performs a single prediction step using a prediction model
+
+        :param model: Model used to training
+        :param inputs: Dictionary of input tensors
+
+        :returns: loss, logits, labels
+        """
 
         with torch.no_grad():
             outputs = model(**inputs)
@@ -410,6 +477,14 @@ class FewshotTrainer:
             return loss, logits, labels
 
     def prediction_loop(self, model, dataloader):
+        """Perform continous predictions over the samples from the dataloader
+
+        :param model: prediction model
+        :param dataloader: dataloader (either a standard dataloader or a task
+            loader which generates samples)
+
+        :returns: metrics dict
+        """
 
         model = self._envelop_model(model, isinstance(dataloader.dataset, TaskDataset))
 
@@ -425,6 +500,14 @@ class FewshotTrainer:
         return metrics
 
     def compute_metrics(self, logits, labels):
+        """Compute the metrics given the logits and labels
+
+        Override this method or specifiy compute_metrics in the constructor to change what metrics to compute
+
+        :param logits:
+        :param labels:
+        :returns: Dictionary containing the computed metrics
+        """
         logits = list(itertools.chain(*logits))
         labels = list(itertools.chain(*labels))
 
@@ -439,6 +522,13 @@ class FewshotTrainer:
         return {'acc': accs}
 
     def compute_loss(self, model, inputs, outputs):
+        """Computes the loss given
+
+        :param model: Model such that model parameters can be used to compute the loss
+        :param inputs: Inputs dict
+        :param outputs: Output dicts
+        """
+
         labels = inputs['query_labels']
         logits = outputs['logits']
 
@@ -451,6 +541,13 @@ class FewshotTrainer:
         return loss
 
     def evaluate(self, eval_task_generator=None):
+        """Evaluate the current model on the different tasks specified by a
+        EvalTaskGenerator
+
+        :param eval_task_generator: Task generator
+
+        :returns: Metrics dictionary
+        """
         metrics = {}
 
         model = self.model
@@ -484,6 +581,14 @@ class FewshotTrainer:
         return dl
 
     def call_model_init(self, trial=None):
+        """Call the model_init function
+
+        :param trial: If the model_init takes a trial argument, this trial will
+            be used to initialize the model
+
+        :returns: An intiailized model
+        """
+
         model_init_argcount = len(inspect.signature(self.model_init).parameters)
         if model_init_argcount == 0:
             model = self.model_init()
@@ -498,16 +603,17 @@ class FewshotTrainer:
         return model
 
     def hyperparameter_search(
-        self, hp_space, n_trials, compute_objective, direction='minimize', **kwargs,
+        self, hp_space, n_trials, compute_objective=None, direction='minimize', **kwargs,
     ):
         """Perform hyper parameter search using Optuna backend
 
-        :param hp_space:
-        :param n_trials:
-        :param compute_objective:
-        :param direction:
+        :param hp_space: Optuna trial object used to sample hyperparameters
+        :param n_trials: Number of trials to perform hp search
+        :param compute_objective: Objective to minimize during hp search
+        :param direction: If objective should use `minimize` or `maximize` to
+            determine the optimal setting.
 
-        :return:
+        :return: the best parameters found during hp search
         """
 
         self.hp_space = hp_space
@@ -525,7 +631,14 @@ class FewshotTrainer:
         return best_run
 
     def _report_to_hp_search(self, trial, epoch, metrics):
-        if trial is None:
+        """Reports the results of the curren trial to the optuna study such that
+        the sampling may be optimized
+
+        :param trial: Optional optuna trial object
+        :param epoch: The current epoch
+        :param metrics: Metrics dictionary
+        """
+         if trial is None:
             return
         self.objective = self.compute_objective(metrics.copy())
         import optuna

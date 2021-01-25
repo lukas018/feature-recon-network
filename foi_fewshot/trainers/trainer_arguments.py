@@ -8,12 +8,15 @@ from typing import Union
 
 
 class EvaluationStrategy(Enum):
+    """Enum over the various Evaluatin strategems"""
+
     NO = 'no'
     STEPS = 'steps'
     EPOCH = 'epoch'
 
 
 class SchedulerUpdateStrategy(Enum):
+    """Enum over the various scheduler updates strategems"""
     NP = 'no'
     STEPS = 'steps'
     EPOCH = 'epoch'
@@ -21,6 +24,9 @@ class SchedulerUpdateStrategy(Enum):
 
 @dataclass
 class TrainingArguments:
+    """Generic arguments for Trainer wrappers
+    """
+
     modeldir: Optional[str] = field(
         default=None, metadata={'help': 'Path to checkpoint models to'},
     )
@@ -103,6 +109,8 @@ class TrainingArguments:
 
 @dataclass
 class PretrainArguments(TrainingArguments):
+    """Trainer arguments for Pretrainer
+    """
     scheduler_update_stretagy: SchedulerUpdateStrategy = field(
         default=SchedulerUpdateStrategy.EPOCH,
         metadata={
@@ -113,6 +121,16 @@ class PretrainArguments(TrainingArguments):
 
 @dataclass
 class FewshotArguments(TrainingArguments):
+    """Trainer arguments for fewshot trainer
+    """
+
+    scheduler_update_stretagy: SchedulerUpdateStrategy = field(
+        default=SchedulerUpdateStrategy.STEPS,
+        metadata={
+            'help': 'How/when the learning rate scheduler should be updated',
+        },
+    )
+
     nways: Union[int, Tuple[int, int]] = field(
         default=5, metadata={'help': 'The number of classes in each task.'},
     )

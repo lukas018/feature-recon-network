@@ -3,6 +3,16 @@ from typing import Optional
 
 
 def run_hp_search(trainer, n_trials: int, direction: str, **kwargs):
+    """Performs hp search by running he trainer ~n_trails~ times.
+
+    :param trainer: Trainer object to perform hp search on
+    :param n_trails: Number of trials to perform
+    :param direction: Wherther to use `minimize` or `maximize` when finding
+        optimal parameters
+
+    :returns: BestTrail results from the study
+    """
+
     import optuna
 
     timeout = kwargs.pop('timeout', None)
