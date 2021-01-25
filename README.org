@@ -33,3 +33,26 @@ Compile version of FOI in-house datasets, like e.g. VBS3 generated datasets.
 1. Add (or maybe just show examples) of how to use outer hyper-parameter optimization with the framework.
 2. Add FOI datasets.
 3. Extend the Trainers to handle non-image data, instead using texts.
+
+
+* Meta-Learning / Fewshot Learning step
+Most fewshot algorithms have a reoccurring pattern during training.
+It consists of a inner and outer training loop.
+In the inner loop, one or more task are sampled, which the learner is adapted to, and then evaluated on.
+
+For metric learning, the adaption consists of finding the class representation using the features extracted from the support set. Fr gradient based methods, like MAML, the learner is instead updated using stochastic gradient descent.
+
+Then, in the outer loop, the loss of each task's query set is used to update the learner used as input to the inner loop.
+Therefore, we suggest a simple API when creating fewshot learners.
+Essentially, the only requirement should that the forward method should take two arguments, query, which is required, and support which is optional. If the support set is provided, it will be used to adapt the model (temporarily) and perform prediction on the query set.
+
+Fewshot Learners may also provide methods which adapt the model (an optionally save the results).
+This allows users to save a fewshot model trained on a specific task, and later offer it as a service or something similar.
+
+One algorithm which doesn't use this setup is Reptile, since doesn't use on the outer loop loss to update the learner, Instead relying on the weight parameters found during the inner loop.
+
+Fewshot learners which implements this simple API can then be used in the FewshotTrainer trainer class to train the model.
+
+* Pretraining
+Certain fewshot classification methods both metric based (e.g. FRN) and gradient based (e.g. MTL) requires pretraining a feature classifier on the set of base classes. The Pretrainer trainer class can be used for this endeavor.
+The pretrainer is a subclass of the FewshotTrainer. This might seem unintuitive since the fewshot setup is more specific than th more general pre-training setup. However, one of the main advantages of this relationship is that the pretrainer can still perform evaluation using fewshot-tasks, which can provide insights into how pretraining affects fewshot training (similarly to what was done in https://arxiv.org/pdf/2003.04390.pdf).
