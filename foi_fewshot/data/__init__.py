@@ -32,6 +32,8 @@ def mini_imagenet(root):
     )
     test_data_transforms = Compose(
         [
+            ToPILImage(),
+            ToTensor(),
             normalize,
         ],
     )
