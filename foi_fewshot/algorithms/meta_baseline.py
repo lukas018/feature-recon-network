@@ -47,7 +47,10 @@ class MetaBaseline(nn.Module):
         :param num_classes: The number of classes in the pretraining dataset
         """
 
-        if self.class_matrix is None or self.class_matrix.weight.shape[1] == num_classes:
+        if (
+            self.class_matrix is None
+            or self.class_matrix.weight.shape[1] == num_classes
+        ):
             self.class_matrix = nn.Linear(dimensions, num_classes)
 
     def compute_centroids(self, support, cache=False):
@@ -73,7 +76,10 @@ class MetaBaseline(nn.Module):
         return centroids
 
     def forward(
-        self, query: torch.Tensor, support: Optional[torch.Tensor] = None, **kwargs,
+        self,
+        query: torch.Tensor,
+        support: Optional[torch.Tensor] = None,
+        **kwargs,
     ) -> Dict[str, torch.Tensor]:
         """
         Perform a forward pass as specified by the given query- and support set.
@@ -120,7 +126,7 @@ class MetaBaseline(nn.Module):
 
             logits = self.dist_fn(features, centroids, dim=2)
             logits = F.softmax(self.temperature * logits, dim=1)
-            outputs['logits'] = logits
+            outputs["logits"] = logits
 
         else:
 
@@ -128,10 +134,10 @@ class MetaBaseline(nn.Module):
             features = self.model(query)
             if self.class_matrix is None:
                 raise ValueError(
-                    'Final classification layer was not initialized, please run init_pretraining before calling',
+                    "Final classification layer was not initialized, please run init_pretraining before calling",
                 )
 
             logits = self.class_matrix(features)
-            outputs['logits'] = logits
+            outputs["logits"] = logits
 
         return outputs

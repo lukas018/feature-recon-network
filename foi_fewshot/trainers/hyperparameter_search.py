@@ -15,8 +15,8 @@ def run_hp_search(trainer, n_trials: int, direction: str, **kwargs):
 
     import optuna
 
-    timeout = kwargs.pop('timeout', None)
-    n_jobs = kwargs.pop('n_jobs', 1)
+    timeout = kwargs.pop("timeout", None)
+    n_jobs = kwargs.pop("n_jobs", 1)
 
     # Create a queue to use for distributing device ids
     gpu_queue: Optional[Queue] = None
@@ -37,7 +37,7 @@ def run_hp_search(trainer, n_trials: int, direction: str, **kwargs):
         trainer.objective = None
         trainer.train(model_path=None, trial=trial)
         # If there hasn't been any evaluation during the training loop.
-        if getattr(trainer, 'objective', None) is None:
+        if getattr(trainer, "objective", None) is None:
             metrics = trainer.evaluate()
             trainer.objective = trainer.compute_objective(metrics)
 

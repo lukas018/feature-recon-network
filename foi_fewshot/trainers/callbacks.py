@@ -165,8 +165,8 @@ class CallbackHandler(TrainerCallback):
         if not any(isinstance(cb, DefaultFlowCallback) for cb in self.callbacks):
             logger.warn(
                 "The Trainer will not work properly if you don't have a `DefaultFlowCallback` in its callbacks. You\n"
-                + 'should add one before training with `trainer.add_callback(DefaultFlowCallback). The current list of'
-                + 'callbacks is\n:'
+                + "should add one before training with `trainer.add_callback(DefaultFlowCallback). The current list of"
+                + "callbacks is\n:"
                 + self.callback_list,
             )
 
@@ -175,8 +175,8 @@ class CallbackHandler(TrainerCallback):
         cb_class = callback if isinstance(callback, type) else callback.__class__
         if cb_class in [c.__class__ for c in self.callbacks]:
             logger.warn(
-                f'You are adding a {cb_class} to the callbacks of this Trainer, but there is already one. The current'
-                + 'list of callbacks is\n:'
+                f"You are adding a {cb_class} to the callbacks of this Trainer, but there is already one. The current"
+                + "list of callbacks is\n:"
                 + self.callback_list,
             )
         self.callbacks.append(cb)
@@ -204,47 +204,75 @@ class CallbackHandler(TrainerCallback):
 
     @property
     def callback_list(self):
-        return '\n'.join(cb.__class__.__name__ for cb in self.callbacks)
+        return "\n".join(cb.__class__.__name__ for cb in self.callbacks)
 
     def on_init_end(
-            self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs,
+        self,
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
+        **kwargs,
     ):
-        return self.call_event('on_init_end', args, state, control, **kwargs)
+        return self.call_event("on_init_end", args, state, control, **kwargs)
 
     def on_train_begin(
-        self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs,
+        self,
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
+        **kwargs,
     ):
         control.should_training_stop = False
-        return self.call_event('on_train_begin', args, state, control, **kwargs)
+        return self.call_event("on_train_begin", args, state, control, **kwargs)
 
     def on_train_end(
-        self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs,
+        self,
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
+        **kwargs,
     ):
-        return self.call_event('on_train_end', args, state, control, **kwargs)
+        return self.call_event("on_train_end", args, state, control, **kwargs)
 
     def on_epoch_begin(
-        self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs,
+        self,
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
+        **kwargs,
     ):
         control.should_epoch_stop = False
-        return self.call_event('on_epoch_begin', args, state, control, **kwargs)
+        return self.call_event("on_epoch_begin", args, state, control, **kwargs)
 
     def on_epoch_end(
-            self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs,
+        self,
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
+        **kwargs,
     ):
-        return self.call_event('on_epoch_end', args, state, control, **kwargs)
+        return self.call_event("on_epoch_end", args, state, control, **kwargs)
 
     def on_step_begin(
-        self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs,
+        self,
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
+        **kwargs,
     ):
         control.should_log = False
         control.should_evaluate = False
         control.should_save = False
-        return self.call_event('on_step_begin', args, state, control, **kwargs)
+        return self.call_event("on_step_begin", args, state, control, **kwargs)
 
     def on_step_end(
-        self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs,
+        self,
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
+        **kwargs,
     ):
-        return self.call_event('on_step_end', args, state, control, **kwargs)
+        return self.call_event("on_step_end", args, state, control, **kwargs)
 
     def on_evaluate(
         self,
@@ -255,13 +283,17 @@ class CallbackHandler(TrainerCallback):
     ):
         control.should_evaluate = False
 
-        return self.call_event('on_evaluate', args, state, control, **kwargs)
+        return self.call_event("on_evaluate", args, state, control, **kwargs)
 
     def on_save(
-        self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs,
+        self,
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
+        **kwargs,
     ):
         control.should_save = False
-        return self.call_event('on_save', args, state, control, **kwargs)
+        return self.call_event("on_save", args, state, control, **kwargs)
 
     def on_log(
         self,
@@ -271,12 +303,16 @@ class CallbackHandler(TrainerCallback):
         **kwargs,
     ):
         control.should_log = False
-        return self.call_event('on_log', args, state, control, **kwargs)
+        return self.call_event("on_log", args, state, control, **kwargs)
 
     def on_prediction_step(
-        self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs,
+        self,
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
+        **kwargs,
     ):
-        return self.call_event('on_prediction_step', args, state, control, **kwargs)
+        return self.call_event("on_prediction_step", args, state, control, **kwargs)
 
     def call_event(self, event, args, state, control, **kwargs):
         for callback in self.callbacks:
@@ -364,7 +400,7 @@ class ProgressCallback(TrainerCallback):
 
     def on_train_begin(self, args, state, control, **kwargs):
         if state.is_local_process_zero:
-            self.training_bar = tqdm(total=state.max_steps)
+            self.training_bar = tqdm(total=state.max_steps, dynamic_ncols=True)
         self.current_step = 0
 
     def on_step_end(self, args, state, control, **kwargs):
@@ -376,7 +412,8 @@ class ProgressCallback(TrainerCallback):
         if state.is_local_process_zero:
             if self.prediction_bar is None:
                 self.prediction_bar = tqdm(
-                    total=len(eval_dataloader), leave=self.training_bar is None,
+                    total=len(eval_dataloader),
+                    leave=self.training_bar is None,
                 )
             self.prediction_bar.update(1)
 
@@ -387,9 +424,9 @@ class ProgressCallback(TrainerCallback):
             self.prediction_bar = None
 
     def on_log(self, args, state, control, **kwargs):
-        logs = kwargs.pop('logs', {})
+        logs = kwargs.pop("logs", {})
         if state.is_local_process_zero and self.training_bar is not None:
-            _ = logs.pop('total_flos', None)
+            _ = logs.pop("total_flos", None)
             self.training_bar.write(str(logs))
 
     def on_train_end(self, args, state, control, **kwargs):
@@ -411,7 +448,7 @@ class WriterCallback(TrainerCallback):
 
     def on_evaluate(self, args, state, control, **kwargs):
         if state.is_local_process_zero and self.writer is not None:
-            for key, values in kwargs.get('metrics', {}):
+            for key, values in kwargs.get("metrics", {}):
                 self.writer(key, values, state.global_step)
 
     def on_train_end(self, args, state, control, **kwargs):

@@ -17,8 +17,8 @@ class FeatureReconNetwork:
         model: nn.Module,
         num_channels: int,
         dimensions: int,
-        alpha: float = 1.,
-        beta: float = 1.,
+        alpha: float = 1.0,
+        beta: float = 1.0,
         scale_factor: float = 1,
         temperature: float = 1,
     ):
@@ -50,16 +50,15 @@ class FeatureReconNetwork:
         :param num_classes: The number of classes ~n~ in the pretraining dataset
         """
 
-        if (
-            self.class_matrices is None
-            or self.class_matrices.shape[0] == num_classes
-        ):
+        if self.class_matrices is None or self.class_matrices.shape[0] == num_classes:
             self.class_matrices = torch.randn(
                 (num_classes, self.dimensions, self.num_channels),
             )
 
     def compute_support(
-        self, support: torch.Tensor, cache: bool = False,
+        self,
+        support: torch.Tensor,
+        cache: bool = False,
     ) -> torch.Tensor:
         """Compute and return the class representations based on the given
         support set.
@@ -87,7 +86,9 @@ class FeatureReconNetwork:
         return support
 
     def forward(
-        self, query: torch.Tensor, support: Optional[torch.Tensor] = None,
+        self,
+        query: torch.Tensor,
+        support: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         """Predict labels using FRN.
 
@@ -117,9 +118,7 @@ class FeatureReconNetwork:
         # Compute and flatten the input features
         # [bsz, r, d]
         bsz = query.shape[0]
-        query = (
-            self.model(query).permute(0, 3, 1, 2).flatten(1, 2) * self.scale_factor
-        )
+        query = self.model(query).permute(0, 3, 1, 2).flatten(1, 2) * self.scale_factor
 
         if support is not None or self.cached_support is not None:
             if support is not None:
@@ -141,9 +140,9 @@ class FeatureReconNetwork:
             # Standard predictions
             if self.class_matrices is None:
                 raise ValueError(
-                    'Class matrices were not initialized, please run init_pretraining before calling method without support data',
+                    "Class matrices were not initialized, please run init_pretraining before calling method without support data",
                 )
-            recons = self._reconstruct(query, self.class_matrices, 1., 1.)
+            recons = self._reconstruct(query, self.class_matrices, 1.0, 1.0)
             logits = self._predictions(recons, query)
 
         return logits

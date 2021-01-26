@@ -110,7 +110,8 @@ class TrainingArguments:
     )
 
     modeldir_prefix: str = field(
-        default="training", metadata={"help": "prefix to add to checkpoint-files"}
+        default="training",
+        metadata={"help": "prefix to add to checkpoint-files"},
     )
 
     # TODO(Lukas) Create a better option for this

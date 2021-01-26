@@ -72,7 +72,9 @@ class ResNet12(nn.Module):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(
-                    m.weight, mode='fan_out', nonlinearity='leaky_relu',
+                    m.weight,
+                    mode="fan_out",
+                    nonlinearity="leaky_relu",
                 )
             elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
                 nn.init.constant_(m.weight, 1)

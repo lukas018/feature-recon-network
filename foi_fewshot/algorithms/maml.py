@@ -1,8 +1,9 @@
 import numpy as np
 import torch
 import torch.nn.functional as F
-from learn2learn.algorithms import MAML as l2l_maml
 from torch import nn
+
+from learn2learn.algorithms import MAML as l2l_maml
 
 
 class MAML(nn.Module):
@@ -20,7 +21,6 @@ class MAML(nn.Module):
         self.update_steps = update_steps
         self.loss_fn = loss_fn
 
-
     def adapt(self, support, cache=False):
         """Adapt the model
 
@@ -31,7 +31,6 @@ class MAML(nn.Module):
 
         :returns: Updated maml model
         """
-
 
         maml = self.model.clone()
 
@@ -69,9 +68,13 @@ class ANIL(nn.Module):
     """Wrapper class for ANIL:"""
 
     def __init__(
-        self, feature_extractor, head, fast_lr, update_steps=5, loss_fn=F.cross_entropy,
+        self,
+        feature_extractor,
+        head,
+        fast_lr,
+        update_steps=5,
+        loss_fn=F.cross_entropy,
     ):
-
         """
         :param feature_extractor: Feature extractor, e.g. a CNN without a final classification head
         :param head: Classification head that performs classification
@@ -83,7 +86,6 @@ class ANIL(nn.Module):
         self.head = l2l_maml(head, fast_lr)
         self.update_steps = update_steps
         self.loss_fn = loss_fn
-
 
     def adapt(self, support, cache=True):
 
@@ -103,7 +105,6 @@ class ANIL(nn.Module):
             self.head = head
 
         return head
-
 
     def forward(self, query, support=None, overwrite=False):
         head = self.head

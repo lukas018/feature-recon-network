@@ -17,7 +17,7 @@ def _custom_collate(batches):
     """Simple collate function that wraps standard image, labels pairs
     to a dict: query -> images,  query_labels -> labels
     """
-    records = [{'query': images, 'query_labels': labels} for images, labels in batches]
+    records = [{"query": images, "query_labels": labels} for images, labels in batches]
     return collate.default_collate(records)
 
 
@@ -144,8 +144,7 @@ class TrainerControl:
 
 
 def multi_size_collate(batches):
-    """Collate function to join tensors if the tensors with the same key have different shapes
-    """
+    """Collate function to join tensors if the tensors with the same key have different shapes"""
 
     keys = batches[0].keys()
     records = {k: [batch[k] for batch in batches] for k in keys}
@@ -163,8 +162,7 @@ class MetabatchWrapper(nn.Module):
         self.model = model
 
     def forward(self, **kwargs):
-        """Performs forward step over a set of tasks
-        """
+        """Performs forward step over a set of tasks"""
 
         keys = list(kwargs.keys())
         records = [{k: kwargs[k][i] for k in keys} for i in range(len(kwargs[keys[0]]))]

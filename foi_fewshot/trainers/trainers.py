@@ -13,12 +13,10 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
-from learn2learn.data import TaskDataset
 from torch.nn.parallel import DataParallel
 from torch.nn.parallel import DistributedDataParallel
 
 from ..data import fast_metadataset
-
 from .callbacks import CallbackHandler
 from .callbacks import DefaultFlowCallback
 from .callbacks import ProgressCallback
@@ -29,6 +27,7 @@ from .trainer_utils import create_taskloader
 from .trainer_utils import MetabatchWrapper
 from .trainer_utils import TrainerControl
 from .trainer_utils import TrainerState
+from learn2learn.data import TaskDataset
 
 DEFAULT_CALLBACKS = [DefaultFlowCallback, ProgressCallback]
 DEFAULT_MODEL_PREFIX = "checkpoint"
