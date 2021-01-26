@@ -1,4 +1,4 @@
 dataclasses-json==0.5.2
 numpy==1.19.0
-optuna==2.4.0[hp-search]
-torch==1.7.0
+optuna==2.4.0
+torch==1.7.1
