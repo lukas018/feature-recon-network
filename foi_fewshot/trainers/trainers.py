@@ -87,7 +87,7 @@ class FewshotTrainer:
             argument.  Required when performing hyper-parameter search.
         """
 
-        self.model = model
+        self.model = model.to(args.device)
         self.args = args
         self.train_dataset = train_dataset
         self.train_meta_dataset = fast_metadataset(train_dataset)
@@ -251,21 +251,35 @@ class FewshotTrainer:
         :param checkpoint_dir: directory where the checkpoint is located
         """
 
-        checkpoint_dir = Path(checkpoint_dir).expanduser()
-        self.model.load_state_dict(torch.load(Path(checkpoint_dir, "model.pkl")))
+        self.model = self.model.cuda()
 
+        checkpoint_dir = Path(checkpoint_dir).expanduser()
         optimizer_path = Path(checkpoint_dir, "optimizer.pkl")
         if optimizer_path.is_file():
-            self.optimizer.load_state_dict(torch.load(optimizer_path))
+            self.optimizer.load_state_dict(
+                torch.load(
+                    optimizer_path,
+                    map_location=torch.device("cpu"),
+                ),
+            )
+            # NOTE This fixes a weird bug where the momentum is stored on cpu while parameters are loaded on cuda
+            # See https://github.com/pytorch/pytorch/issues/8741 for more information
+            self.optimizer.load_state_dict(self.optimizer.state_dict())
 
         scheduler_path = Path(checkpoint_dir, "scheduler.pkl")
         if scheduler_path.is_file():
-            self.lr_scheduler.load_state_dict(torch.load(scheduler_path))
+            self.lr_scheduler.load_state_dict(
+                torch.load(
+                    scheduler_path,
+                    map_location=torch.device("cpu"),
+                ),
+            )
 
         state_path = Path(checkpoint_dir, "state.json")
+
         if state_path.is_file():
-            with open(state_path, "w") as fh:
-                self.state = TrainerState.fromdict(json.load(fh))
+            with open(state_path) as fh:
+                self.state = TrainerState.from_dict(json.load(fh))
 
     def scheduler_step(self):
         """Runs scheduler at the current update step"""
@@ -290,14 +304,14 @@ class FewshotTrainer:
 
         model.train()
         outputs = model(**inputs)
-        outputs = {k: v.cpu() for k, v in outputs.items()}
         loss = self.compute_loss(model, inputs, outputs)
 
         if "loss" in outputs:
             for x, y in zip(loss, outputs["loss"]):
                 x += y
 
-        loss = loss.mean()
+        if len(loss.size()) > 0:
+            loss = loss.mean()
 
         if self.args.gradient_accumulation_steps > 1:
             loss = loss / self.args.gradient_accumulation_steps
@@ -338,10 +352,10 @@ class FewshotTrainer:
         if self.state.max_steps == 0:
             self.state.max_steps = max_steps
 
-        for _ in range(epochs_trained):
-            epoch_iterator = self.get_train_dataloader()
-            for _ in epoch_iterator:
-                break
+        # for _ in range(epochs_trained):
+        #     epoch_iterator = self.get_train_dataloader()
+        #     for _ in epoch_iterator:
+        #         break
 
         self.control = self.callback_handler.on_train_begin(
             self.args,
@@ -415,7 +429,10 @@ class FewshotTrainer:
             self.args.load_best_model_at_end
             and self.state.best_model_checkpoint is not None
         ):
-            self.load_checkpoint(self.state.best_model_checkpoint)
+            best_model_state_dict = torch.load(
+                Path(self.state.best_model_checkpoint, "model.pkl"),
+            )
+            self.model.load_state_dict(best_model_state_dict)
 
         self.control = self.callback_handler.on_train_end(
             self.args,
@@ -528,6 +545,7 @@ class FewshotTrainer:
         """
 
         model = self._envelop_model(model, isinstance(dataloader.dataset, TaskDataset))
+        model.eval()
 
         total_loss, total_logits, total_labels = [], [], []
         for step, batch in enumerate(dataloader):
@@ -614,7 +632,7 @@ class FewshotTrainer:
         )
 
         metrics = dict()
-        for prefix, dl in self.eval_task_generator:
+        for prefix, dl in eval_task_generator:
             _metrics = self.prediction_loop(model, dl)
             _metrics = {
                 f"eval-{prefix}-{key}": float(metric)

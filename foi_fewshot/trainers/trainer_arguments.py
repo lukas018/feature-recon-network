@@ -6,6 +6,8 @@ from typing import Optional
 from typing import Tuple
 from typing import Union
 
+import torch
+
 
 class EvaluationStrategy(Enum):
     """Enum over the various Evaluatin strategems"""
@@ -85,6 +87,10 @@ class TrainingArguments:
         default=0.9,
         metadata={"help": "Momentum for optimizer"},
     )
+    weight_decay: float = field(
+        default=0.0,
+        metadata={"help": "Weight decay to initialize optimizer with"},
+    )
     load_best_model_at_end: bool = field(default=True)
     logging_first_step: bool = field(default=True)
     logging_steps: int = field(default=1)
@@ -123,6 +129,17 @@ class TrainingArguments:
     def post_init(self):
         if self.n_gpus is None:
             self.n_gpus = len(self.device_ids)
+
+    no_cuda: bool = field(
+        default=False,
+        metadata={"help": "Do not use cuda devies even if it is available"},
+    )
+
+    @property
+    def device(self):
+        if self.no_cuda or not torch.cuda.is_available():
+            return torch.device("cpu")
+        return torch.device("cuda")
 
 
 @dataclass
