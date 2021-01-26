@@ -1,7 +1,6 @@
 import logging
 from pathlib import Path
 
-from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 from .trainer_arguments import EvaluationStrategy
@@ -436,20 +435,34 @@ class ProgressCallback(TrainerCallback):
 
 
 class WriterCallback(TrainerCallback):
-    def __init__(self, logdir):
+    """Callback for Writing results to Tensorboard's SummaryWriter"""
+
+    def __init__(self, logdir=None):
         self.logdir = logdir
         if self.logdir is not None:
             self.logdir = Path(self.logdir).expanduser()
         self.writer = None
 
     def on_train_begin(self, args, state, control, **kwargs):
-        if state.is_local_process_zero and self.logdir is not None:
-            self.writer = SummaryWriter(self.logdir)
+        from torch.utils.tensorboard import SummaryWriter
+
+        if state.is_local_process_zero and (self.logdir is not None or args.logdir):
+            logdir = self.logdir if self.logdir is not None else args.logdir
+            logdir = Path(logdir).expanduser()
+            self.writer = SummaryWriter(logdir)
+
+    def on_log(self, args, state, control, **kwargs):
+        if state.is_local_process_zero and self.writer is not None:
+            logs = kwargs.pop("logs", {})
+            _ = logs.pop("epoch")
+            for key, values in logs.items():
+                self.writer.add_scalar(key, values, state.global_step)
 
     def on_evaluate(self, args, state, control, **kwargs):
         if state.is_local_process_zero and self.writer is not None:
-            for key, values in kwargs.get("metrics", {}):
-                self.writer(key, values, state.global_step)
+            metrics = kwargs.pop("metrics", dict())
+            for key, values in metrics.items():
+                self.writer.add_scalar(key, values, state.global_step)
 
     def on_train_end(self, args, state, control, **kwargs):
         if state.is_local_process_zero and self.writer is not None:
