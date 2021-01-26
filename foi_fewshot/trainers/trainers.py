@@ -31,13 +31,12 @@ from .trainer_utils import TrainerControl
 from .trainer_utils import TrainerState
 
 DEFAULT_CALLBACKS = [DefaultFlowCallback, ProgressCallback]
-DEFAULT_MODEL_PREFIX = 'checkpoint'
+DEFAULT_MODEL_PREFIX = "checkpoint"
 logger = logging.getLogger(__name__)
 
 
 def _default_lr_scheduler(model, optimizer, args):
-    """A learning rate scheduler which always output the same result
-    """
+    """A learning rate scheduler which always output the same result"""
 
     def get_lr(epoch):
         return 1.0
@@ -47,12 +46,17 @@ def _default_lr_scheduler(model, optimizer, args):
     return lr_scheduler
 
 
-def _default_compute_objective(metrics, keyword='eval-loss'):
+def _default_compute_objective(metrics, keyword="eval-loss"):
     metrics = copy.deepcopy(metrics)
-    loss = metrics.pop(
-        'eval_loss', None,
-    ) if keyword is None else metrics.pop(keyword, None)
-    _ = metrics.pop('epoch', None)
+    loss = (
+        metrics.pop(
+            "eval_loss",
+            None,
+        )
+        if keyword is None
+        else metrics.pop(keyword, None)
+    )
+    _ = metrics.pop("epoch", None)
     return loss if len(metrics) == 0 else sum(metrics.values())
 
 
@@ -98,25 +102,31 @@ class FewshotTrainer:
         )
 
         self.callback_handler = CallbackHandler(
-            callbacks, self.model, self.optimizer, self.lr_scheduler,
+            callbacks,
+            self.model,
+            self.optimizer,
+            self.lr_scheduler,
         )
         self.state = TrainerState()
         self.control = TrainerControl()
 
     def create_optimizer_and_scheduler(self):
-        """Initializes optimizer and scheduler if not already done
-        """
+        """Initializes optimizer and scheduler if not already done"""
 
         if self.optimizer is None:
             lr = self.args.learning_rate
             momentum = self.args.momentum
             self.optimizer = optim.SGD(
-                self.model.parameters(), lr=lr, momentum=momentum,
+                self.model.parameters(),
+                lr=lr,
+                momentum=momentum,
             )
 
         if self.lr_scheduler is None:
             self.lr_scheduler = _default_lr_scheduler(
-                self.model, self.optimizer, self.args,
+                self.model,
+                self.optimizer,
+                self.args,
             )
 
     def _envelop_model(self, model, fewshot_mode=True):
@@ -133,15 +143,25 @@ class FewshotTrainer:
         if fewshot_mode:
             model = MetabatchWrapper(model)
 
-        data_parallel = (
-            DistributedDataParallel if self.args.distributed else DataParallel
-        )
-        learner = data_parallel(
-            model,
-            device_ids=self.args.device_ids,
-            output_device=torch.device('cpu'),
-        )
-        return learner
+        if torch.cuda.is_available():
+            data_parallel = (
+                DistributedDataParallel if self.args.distributed else DataParallel
+            )
+
+            main_device = (
+                self.args.device_ids[0] if self.args.device_ids is not None else 0
+            )
+            device = torch.device(main_device if torch.cuda.is_available() else "cpu")
+            devices = (
+                [device] if self.args.device_ids is not None else self.args.device_ids
+            )
+
+            model = data_parallel(
+                model,
+                device_ids=devices,
+            )
+
+        return model
 
     def save_checkpoint(self, modeldir=None, trial=None, metrics=None):
         """Save the current state of the model as checkpoint
@@ -161,29 +181,31 @@ class FewshotTrainer:
             if self.args.modeldir_prefix is not None
             else DEFAULT_MODEL_PREFIX
         )
-        prefix = f'{self.args.modeldir_prefix}-{self.state.global_step}'
+        prefix = f"{self.args.modeldir_prefix}-{self.state.global_step}"
 
         if trial is not None:
             run_id = trial.number
-            run_name = f'run-{run_id}'
+            run_name = f"run-{run_id}"
             checkpointdir = Path(modeldir, run_name, prefix)
         else:
             checkpointdir = Path(modeldir, prefix)
 
         checkpointdir.mkdir(exist_ok=True, parents=True)
 
-        torch.save(self.model.state_dict(), Path(checkpointdir, 'model.pkl'))
+        torch.save(self.model.state_dict(), Path(checkpointdir, "model.pkl"))
         if self.optimizer is not None:
             torch.save(
-                self.optimizer.state_dict(), Path(checkpointdir, 'optimizer.pkl'),
+                self.optimizer.state_dict(),
+                Path(checkpointdir, "optimizer.pkl"),
             )
 
         if self.lr_scheduler is not None:
             torch.save(
-                self.lr_scheduler.state_dict(), Path(checkpointdir, 'scheduler.pkl'),
+                self.lr_scheduler.state_dict(),
+                Path(checkpointdir, "scheduler.pkl"),
             )
 
-        torch.save(self.args, Path(checkpointdir, 'train_arguments.pkl'))
+        torch.save(self.args, Path(checkpointdir, "train_arguments.pkl"))
 
         # Determine the new best metric / best model checkpoint
         if metrics is not None and self.args.metric_for_best_model is not None:
@@ -199,8 +221,8 @@ class FewshotTrainer:
                 self.state.best_metric = metric_value
                 self.state.best_model_checkpoint = str(checkpointdir)
 
-        state_path = Path(checkpointdir, 'state.json')
-        with open(state_path, 'w') as fh:
+        state_path = Path(checkpointdir, "state.json")
+        with open(state_path, "w") as fh:
             fh.write(self.state.to_json())
 
     def _hp_search_setup(self, trial):
@@ -216,14 +238,14 @@ class FewshotTrainer:
         for key, value in params.items():
             if not hasattr(self.args, key):
                 raise AttributeError(
-                    f'Trying to set {key} in the hyperparameter search but there is no corresponding field in `TrainingArguments`.',
+                    f"Trying to set {key} in the hyperparameter search but there is no corresponding field in `TrainingArguments`.",
                 )
             old_attr = getattr(self.args, key, None)
             # Casting value to the proper type
             if old_attr is not None:
                 value = type(old_attr)(value)
             setattr(self.args, key, value)
-            logger.info(f'Trial: {trial.params}')
+            logger.info(f"Trial: {trial.params}")
 
     def load_checkpoint(self, checkpoint_dir):
         """Load the trainer state from checkpoint
@@ -231,19 +253,19 @@ class FewshotTrainer:
         """
 
         checkpoint_dir = Path(checkpoint_dir).expanduser()
-        self.model.load_state_dict(torch.load(Path(checkpoint_dir, 'model.pkl')))
+        self.model.load_state_dict(torch.load(Path(checkpoint_dir, "model.pkl")))
 
-        optimizer_path = Path(checkpoint_dir, 'optimizer.pkl')
+        optimizer_path = Path(checkpoint_dir, "optimizer.pkl")
         if optimizer_path.is_file():
             self.optimizer.load_state_dict(torch.load(optimizer_path))
 
-        scheduler_path = Path(checkpoint_dir, 'scheduler.pkl')
+        scheduler_path = Path(checkpoint_dir, "scheduler.pkl")
         if scheduler_path.is_file():
             self.lr_scheduler.load_state_dict(torch.load(scheduler_path))
 
-        state_path = Path(checkpoint_dir, 'state.json')
+        state_path = Path(checkpoint_dir, "state.json")
         if state_path.is_file():
-            with open(state_path, 'w') as fh:
+            with open(state_path, "w") as fh:
                 self.state = TrainerState.fromdict(json.load(fh))
 
     def scheduler_step(self):
@@ -269,10 +291,11 @@ class FewshotTrainer:
 
         model.train()
         outputs = model(**inputs)
+        outputs = {k: v.cpu() for k, v in outputs.items()}
         loss = self.compute_loss(model, inputs, outputs)
 
-        if 'loss' in outputs:
-            for x, y in zip(loss, outputs['loss']):
+        if "loss" in outputs:
+            for x, y in zip(loss, outputs["loss"]):
                 x += y
 
         loss = loss.mean()
@@ -302,7 +325,8 @@ class FewshotTrainer:
 
         train_dataloader = self.get_train_dataloader()
         model = self._envelop_model(
-            self.model, isinstance(train_dataloader.dataset, TaskDataset),
+            self.model,
+            isinstance(train_dataloader.dataset, TaskDataset),
         )
 
         num_update_steps_per_epoch = (
@@ -321,9 +345,12 @@ class FewshotTrainer:
                 break
 
         self.control = self.callback_handler.on_train_begin(
-            self.args, self.state, self.control,
+            self.args,
+            self.state,
+            self.control,
         )
 
+        tr_loss = torch.tensor(0.0)
         for epoch in range(epochs_trained, self.args.num_epochs):
             epoch_iterator = iter(self.get_train_dataloader())
 
@@ -339,13 +366,16 @@ class FewshotTrainer:
             steps_trained_in_current_epoch *= self.args.gradient_accumulation_steps
 
             self.control = self.callback_handler.on_epoch_begin(
-                self.args, self.state, self.control,
+                self.args,
+                self.state,
+                self.control,
             )
-            tr_loss = torch.tensor(0.0)
 
             for step, inputs in enumerate(epoch_iterator):
                 self.control = self.callback_handler.on_step_begin(
-                    self.args, self.state, self.control,
+                    self.args,
+                    self.state,
+                    self.control,
                 )
 
                 if steps_trained_in_current_epoch > 0:
@@ -373,7 +403,9 @@ class FewshotTrainer:
                     break
 
             self.control = self.callback_handler.on_epoch_end(
-                self.args, self.state, self.control,
+                self.args,
+                self.state,
+                self.control,
             )
             self._maybe_log_save_evaluate(tr_loss, model, trial, epoch)
 
@@ -387,7 +419,9 @@ class FewshotTrainer:
             self.load_checkpoint(self.state.best_model_checkpoint)
 
         self.control = self.callback_handler.on_train_end(
-            self.args, self.state, self.control,
+            self.args,
+            self.state,
+            self.control,
         )
 
     def optimizer_step(self, loss):
@@ -407,12 +441,15 @@ class FewshotTrainer:
         """
 
         if self.state.epoch is not None:
-            logs['epoch'] = round(self.state.epoch, 2)
+            logs["epoch"] = round(self.state.epoch, 2)
 
         self.control = self.callback_handler.on_log(
-            self.args, self.state, self.control, logs,
+            self.args,
+            self.state,
+            self.control,
+            logs=logs,
         )
-        output = {**logs, **{'step': self.state.global_step}}
+        output = {**logs, **{"step": self.state.global_step}}
         self.state.log_history.append(output)
 
     def _maybe_log_save_evaluate(self, tr_loss, model, trial, epoch):
@@ -431,13 +468,13 @@ class FewshotTrainer:
 
             # reset tr_loss to zero
             tr_loss -= tr_loss
-            logs['loss'] = round(
+            logs["loss"] = round(
                 tr_loss_scalar
                 / (self.state.global_step - self._globalstep_last_logged),
                 4,
             )
             # backward compatibility for pytorch schedulers
-            logs['learning_rate'] = self.lr_scheduler.get_last_lr()[0]
+            logs["learning_rate"] = self.lr_scheduler.get_last_lr()[0]
             self._total_loss_scalar += tr_loss_scalar
             self._globalstep_last_logged = self.state.global_step
             self.log(logs)
@@ -450,7 +487,9 @@ class FewshotTrainer:
         if self.control.should_save:
             self.save_checkpoint(metrics=metrics, trial=trial)
             self.control = self.callback_handler.on_save(
-                self.args, self.state, self.control,
+                self.args,
+                self.state,
+                self.control,
             )
 
     def prediction_step(
@@ -468,13 +507,13 @@ class FewshotTrainer:
 
         with torch.no_grad():
             outputs = model(**inputs)
-            labels = inputs['query_labels']
-            logits = outputs['logits']
+            labels = inputs["query_labels"]
+            logits = outputs["logits"]
 
             loss = self.compute_loss(model, inputs, outputs)
 
-            if 'loss' in outputs:
-                for x, y in zip(loss, outputs['loss']):
+            if "loss" in outputs:
+                for x, y in zip(loss, outputs["loss"]):
                     x += y
 
             return loss, logits, labels
@@ -494,12 +533,20 @@ class FewshotTrainer:
         total_loss, total_logits, total_labels = [], [], []
         for step, batch in enumerate(dataloader):
             loss, logits, labels = self.prediction_step(model, batch)
-            total_loss.extend(loss)
+            if len(loss.size()) == 0:
+                total_loss.append(loss)
+            else:
+                total_loss.extend(loss)
+
             total_logits.extend(logits)
             total_labels.extend(labels)
 
+        if isinstance(dataloader.dataset, TaskDataset):
+            total_logits = list(itertools.chain(*total_logits))
+            total_labels = list(itertools.chain(*total_labels))
+
         metrics = self.compute_metrics(total_logits, total_labels)
-        metrics['loss'] = np.mean(total_loss)
+        metrics["loss"] = np.mean(total_loss)
         return metrics
 
     def compute_metrics(self, logits, labels):
@@ -511,10 +558,11 @@ class FewshotTrainer:
         :param labels:
         :returns: Dictionary containing the computed metrics
         """
-        logits = list(itertools.chain(*logits))
-        labels = list(itertools.chain(*labels))
 
         def _acc(logits, labels):
+            logits = logits.cpu()
+            labels = labels.long().cpu()
+
             idx = torch.argmax(logits)
             size = 1.0 if len(labels.shape) == 0 else labels.shape[0]
             acc = ((idx == labels).float().sum() / size).detach().numpy()
@@ -522,7 +570,7 @@ class FewshotTrainer:
 
         accs = list(itertools.starmap(_acc, zip(logits, labels)))
         accs = np.mean(accs)
-        return {'acc': accs}
+        return {"acc": accs}
 
     def compute_loss(self, model, inputs, outputs):
         """Computes the loss given
@@ -532,13 +580,19 @@ class FewshotTrainer:
         :param outputs: Output dicts
         """
 
-        labels = inputs['query_labels']
-        logits = outputs['logits']
+        labels = inputs["query_labels"]
+        logits = outputs["logits"]
+
+        def _compute_loss(logits, labels):
+            labels = labels.long().cpu()
+            logits = logits.float().cpu()
+            loss = F.cross_entropy(logits, labels)
+            return loss
 
         if isinstance(logits, torch.Tensor):
-            loss = F.cross_entropy(logits, labels.long())
+            loss = _compute_loss(logits, labels)
         else:
-            losses = tuple(itertools.starmap(F.cross_entropy, zip(logits, labels)))
+            losses = list(itertools.starmap(_compute_loss, zip(logits, labels)))
             loss = torch.stack(losses)
 
         return loss
@@ -564,14 +618,17 @@ class FewshotTrainer:
         for prefix, dl in self.eval_task_generator:
             _metrics = self.prediction_loop(model, dl)
             _metrics = {
-                f'eval-{prefix}-{key}': float(metric)
+                f"eval-{prefix}-{key}": float(metric)
                 for key, metric in _metrics.items()
             }
             self.log(_metrics)
             metrics = {**metrics, **_metrics}
 
         self.control = self.callback_handler.on_evaluate(
-            self.args, self.state, self.control, metrics=metrics,
+            self.args,
+            self.state,
+            self.control,
+            metrics=metrics,
         )
         return metrics
 
@@ -598,15 +655,20 @@ class FewshotTrainer:
         elif model_init_argcount == 1:
             model = self.model_init(trial)
         else:
-            raise RuntimeError('model_init should have 0 or 1 argument.')
+            raise RuntimeError("model_init should have 0 or 1 argument.")
 
         if model is None:
-            raise RuntimeError('model_init should not return None.')
+            raise RuntimeError("model_init should not return None.")
 
         return model
 
     def hyperparameter_search(
-        self, hp_space, n_trials, compute_objective=None, direction='minimize', **kwargs,
+        self,
+        hp_space,
+        n_trials,
+        compute_objective=None,
+        direction="minimize",
+        **kwargs,
     ):
         """Perform hyper parameter search using Optuna backend
 
@@ -626,7 +688,8 @@ class FewshotTrainer:
             self.compute_objective = compute_objective
         elif isinstance(compute_objective, str):
             self.compute_objective = functools.partial(
-                _default_compute_objective, key=compute_objective,
+                _default_compute_objective,
+                key=compute_objective,
             )
         else:
             self.compute_objective = _default_compute_objective
@@ -646,14 +709,14 @@ class FewshotTrainer:
             return
         self.objective = self.compute_objective(metrics.copy())
         import optuna
+
         trial.report(self.objective, epoch)
         if trial.should_prune():
             raise optuna.TrialPruned()
 
 
 class PreTrainer(FewshotTrainer):
-    """Trainer wrapper for performing image classifiaction pre-training
-    """
+    """Trainer wrapper for performing image classifiaction pre-training"""
 
     def get_train_dataloader(self):
         """Returns the DataLoader used during training of the model
