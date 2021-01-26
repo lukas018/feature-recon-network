@@ -17,7 +17,12 @@ class MetaBaseline(nn.Module):
     various fewshot-learning tasks.
     """
 
-    def __init__(self, model, temperature=1, dist_fn: Callable = F.cosine_similarity):
+    def __init__(
+        self,
+        model,
+        temperature=10.0,
+        dist_fn: Callable = F.cosine_similarity,
+    ):
         """
         :param model: Feature extractor to wrap, e.g. a ResNet12 without a
             classification head.
@@ -29,7 +34,7 @@ class MetaBaseline(nn.Module):
 
         super().__init__()
         self.model = model
-        self.temperature = torch.tensor(temperature)
+        self.temperature = torch.tensor(float(temperature), requires_grad=True)
         self.dist_fn = dist_fn
         self.class_matrix: Optional[nn.Linear] = None
         self.cached_centroids: Optional[torch.Tensor] = None
@@ -125,7 +130,7 @@ class MetaBaseline(nn.Module):
             features = features.unsqueeze(1).repeat((1, nways, 1))
 
             logits = self.dist_fn(features, centroids, dim=2)
-            logits = F.softmax(self.temperature * logits, dim=1)
+            logits = self.temperature * logits
             outputs["logits"] = logits
 
         else:
