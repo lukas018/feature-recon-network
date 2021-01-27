@@ -17,6 +17,7 @@ class MAML(nn.Module):
         :param loss_fn: The loss function to used to update during the inner step
         """
 
+        super().__init__()
         self.model = l2l_maml(model, fast_lr)
         self.update_steps = update_steps
         self.loss_fn = loss_fn
@@ -32,13 +33,16 @@ class MAML(nn.Module):
         :returns: Updated maml model
         """
 
+        self.model.train()
         maml = self.model.clone()
 
         n = support.shape[0]
         k = support.shape[1]
-        labels = torch.tensor(np.arange(n)).unflatten(1).repeat((1, k))
+        labels = torch.tensor(np.arange(n)).unsqueeze(1).repeat((1, k)).flatten()
+        labels = labels.to(support.device)
+
         for _ in range(self.update_steps):
-            logits = F.softmax(maml(support.flatten(0, 1)))
+            logits = maml(support.flatten(0, 1))
             error = self.loss_fn(logits, labels)
             maml.adapt(error)
 
@@ -47,7 +51,7 @@ class MAML(nn.Module):
 
         return maml
 
-    def forward(self, query, support=None):
+    def forward(self, query, support=None, **kwargs):
         """Perform a single forward step
 
         :param query:
@@ -60,8 +64,10 @@ class MAML(nn.Module):
             maml = self.adapt(support)
 
         logits = maml(query)
-        logits = F.softmax(logits)
-        return logits
+        outputs = dict()
+        outputs["logits"] = logits
+
+        return outputs
 
 
 class ANIL(nn.Module):
@@ -82,6 +88,7 @@ class ANIL(nn.Module):
         :param update_steps: The number of update steps to perform during the inner step
         :param loss_fn: The loss function to used to update during the inner step
         """
+        super().__init__()
         self.feature_extractor = feature_extractor
         self.head = l2l_maml(head, fast_lr)
         self.update_steps = update_steps
@@ -94,10 +101,11 @@ class ANIL(nn.Module):
         n = support.shape[0]
         k = support.shape[1]
         labels = torch.tensor(np.arange(n)).unflatten(1).repeat((1, k))
+        labels = labels.to(support.device)
         support_features = self.feature_extractor(support.flatten(0, 1))
 
         for _ in range(self.update_steps):
-            logits = F.softmax(head(support_features))
+            logits = head(support_features)
             error = self.loss_fn(logits, labels)
             head.adapt(error)
 
@@ -106,12 +114,14 @@ class ANIL(nn.Module):
 
         return head
 
-    def forward(self, query, support=None, overwrite=False):
+    def forward(self, query, support=None, overwrite=False, **kwargs):
         head = self.head
 
         if support is not None:
             head = self.adapt(support)
 
         query_features = self.feature_extractor(query)
-        logits = F.softmax(head(query_features))
-        return logits
+        logits = head(query_features)
+        outputs = dict()
+        outputs["logits"] = logits
+        return outputs

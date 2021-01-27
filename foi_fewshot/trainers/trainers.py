@@ -6,6 +6,7 @@ import itertools
 import json
 import logging
 import math
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict
 
@@ -521,7 +522,18 @@ class FewshotTrainer:
         :returns: loss, logits, labels
         """
 
-        with torch.no_grad():
+        # TODO(Lukas) Make a less ugly hack
+        @contextmanager
+        def dummy_cm():
+            yield
+
+        def detach(output):
+            """Detach item from tensor so that cuda memory can be released"""
+            if isinstance(output, torch.Tensor):
+                return output.detach().cpu().numpy()
+            return [detach(x) for x in output]
+
+        with torch.no_grad() if self.args.disable_gradient_during_eval else dummy_cm():
             outputs = model(**inputs)
             labels = inputs["query_labels"]
             logits = outputs["logits"]
@@ -531,6 +543,11 @@ class FewshotTrainer:
             if "loss" in outputs:
                 for x, y in zip(loss, outputs["loss"]):
                     x += y
+
+            # Detach the values from its torch tensors such that we can free cuda memory
+            loss = detach(loss)
+            logits = detach(logits)
+            labels = detach(labels)
 
             return loss, logits, labels
 
@@ -545,12 +562,12 @@ class FewshotTrainer:
         """
 
         model = self._envelop_model(model, isinstance(dataloader.dataset, TaskDataset))
-        model.eval()
+        # model.eval()
 
         total_loss, total_logits, total_labels = [], [], []
         for step, batch in enumerate(dataloader):
             loss, logits, labels = self.prediction_step(model, batch)
-            if len(loss.size()) == 0:
+            if len(loss.shape) == 0:
                 total_loss.append(loss)
             else:
                 total_loss.extend(loss)
@@ -577,12 +594,14 @@ class FewshotTrainer:
         """
 
         def _acc(logits, labels):
-            logits = logits.cpu()
-            labels = labels.long().cpu()
+            # logits = logits.cpu()
+            # labels = labels.long().cpu()
+            idx = np.argmax(logits, axis=-1)
 
-            idx = torch.argmax(logits)
+            # idx = torch.argmax(logits)
             size = 1.0 if len(labels.shape) == 0 else labels.shape[0]
-            acc = ((idx == labels).float().sum() / size).detach().numpy()
+            # acc = ((idx == labels).float().sum() / size).detach().numpy()
+            acc = np.sum(idx == labels) / size
             return acc
 
         accs = list(itertools.starmap(_acc, zip(logits, labels)))

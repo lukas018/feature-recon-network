@@ -126,6 +126,13 @@ class TrainingArguments:
         metadata={"help": "Whether to use DataParallel or DistributedDataParallel"},
     )
 
+    disable_gradient_during_eval: bool = field(
+        default=False,
+        metadata={
+            "help": "Whether to use torch.no_grad(), i.e. disable gradient computation during evaluation. This will break certain gradient based fewshot algorithms such as MAML but will speed up evaluation.",
+        },
+    )
+
     def post_init(self):
         if self.n_gpus is None:
             self.n_gpus = len(self.device_ids)

@@ -177,7 +177,13 @@ class MetabatchWrapper(nn.Module):
             return multi_size_collate(outputs)
 
 
-def create_eval_taskgen(ds_base, ds_novel, n_samples=25, batch_size=4):
+def create_eval_taskgen(
+    ds_base,
+    ds_novel,
+    n_samples=25,
+    batch_size=4,
+    classification_task=False,
+):
     """Helper function for creating a common evalution task generator
 
     This task generator will create five different tasks.
@@ -209,7 +215,10 @@ def create_eval_taskgen(ds_base, ds_novel, n_samples=25, batch_size=4):
     eval_taskgen.add("novel:n=5,k=5", ds_novel, fs_eval_n5k5)
     eval_taskgen.add("base:n=5,k=1", ds_base, fs_eval_n5k1)
     eval_taskgen.add("novel:n=5,k=1", ds_novel, fs_eval_n5k1)
-    eval_taskgen.add("base-class", ds_base, None)
+
+    if classification_task:
+        eval_taskgen.add("base-class", ds_base, None)
+
     return eval_taskgen
 
 
