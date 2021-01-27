@@ -1,3 +1,17 @@
+#/usr/bin/python3
+"""Experiment script for the meta-baseline paper
+
+This paper implements one the main experiment outlined in the paper
+https://arxiv.org/pdf/2003.04390.pdf. More specifically, it evaluates
+the proposed ~meta-baseline~ on the miniImagenet dataset using a ResNet12
+backbone.
+
+The script will attempt to use any GPUs is available.
+Training (including pretraining and meta-training) should take roughly
+4-6 hours when using a single GPU. Performance should also scale linearly
+with the numbers of GPUs available.
+"""
+
 import json
 
 import torch
