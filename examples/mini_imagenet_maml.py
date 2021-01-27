@@ -1,8 +1,14 @@
+# /urs/bin/python3
+"""Example script of MAML
+
+This script implements the nway=5, kshot=1 experiment in the
+the miniImagenet dataset outlined in the original MAML paper
+https://arxiv.org/pdf/1703.03400.pdf.
+"""
 import torch
 from torch import optim
 
 import learn2learn as l2l
-
 from foi_fewshot.algorithms import MAML
 from foi_fewshot.data import mini_imagenet
 from foi_fewshot.data import split_dataset
@@ -11,9 +17,6 @@ from foi_fewshot.trainers import create_test_taskgen
 from foi_fewshot.trainers import EvaluationStrategy
 from foi_fewshot.trainers import FewshotArguments
 from foi_fewshot.trainers import FewshotTrainer
-from foi_fewshot.trainers import PretrainArguments
-from foi_fewshot.trainers import PreTrainer
-from foi_fewshot.trainers import SchedulerUpdateStrategy
 from foi_fewshot.trainers.callbacks import WriterCallback
 
 model = l2l.vision.models.MiniImagenetCNN(5)
