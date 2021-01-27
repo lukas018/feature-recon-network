@@ -138,12 +138,4 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# Johans calcs
-stylometric/compare_users.py
-stylometric/compare_users_rank.py
-stylometric/create_intervals_dict.py
-stylometric/extract_intervals.py
-stylometric/feature_intervals.pickle
-stylometric/statistics.csv
-
 .idea/
