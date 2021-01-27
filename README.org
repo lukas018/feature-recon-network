@@ -9,15 +9,15 @@ Built on top of pytorch and learn2learn.
 ** Algorithms
 Includes implementations of the following fewshot algorithms:
 
-| Algorithm         | Implemented | Tested |
-|-------------------+-------------+--------|
-| MAML              | yes         | no     |
-| ANIL              | yes         | no     |
-| Reptile           | yes         | no     |
-| ProtoNet          | yes         | no     |
-| New Meta Baseline | yes         | no     |
-| FRN               | yes         | no     |
-| MTL               | no          | no     |
+| Algorithm         | Implementation Status | Tested |
+|-------------------+-----------------------+--------|
+| MAML              | bugfixing             | no     |
+| ANIL              | bugfixing             | no     |
+| Reptile           | no                    | no     |
+| ProtoNet          | yes                   | no     |
+| New Meta Baseline | complete              | yes    |
+| FRN               | bugfixing             | no     |
+| MTL               | todo                  | no     |
 
 ** Training Utilities
 Trainer Wrappers inspired by HuggingFace's transformer trainer
@@ -34,6 +34,13 @@ Compile version of FOI in-house datasets, like e.g. VBS3 generated datasets.
 2. Add FOI datasets.
 3. Extend the Trainers to handle non-image data, instead using texts.
 
+* Examples
+Example scripts that implement experiments from various important fewshot-papers will be added as time goes on.
+Currently example scripts for nway=5, kshot=1 with miniImagenet for new meta-baseline and maml exists.
+
+** TODO
+Find a nice way to test that we our examples always arrive at the correct results, even when the framework changes.
+Since training usually takes a few hours this can be a bit difficult to make it efficient.
 
 * Meta-Learning / Fewshot Learning step
 Most fewshot algorithms have a reoccurring pattern during training.
