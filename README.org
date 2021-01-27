@@ -9,15 +9,15 @@ Built on top of pytorch and learn2learn.
 ** Algorithms
 Includes implementations of the following fewshot algorithms:
 
-| Algorithm         | Implementation Status | Tested |
-|-------------------+-----------------------+--------|
-| MAML              | bugfixing             | no     |
-| ANIL              | bugfixing             | no     |
-| Reptile           | no                    | no     |
-| ProtoNet          | yes                   | no     |
-| New Meta Baseline | complete              | yes    |
-| FRN               | bugfixing             | no     |
-| MTL               | todo                  | no     |
+| Algorithm         | Implementation Status                               | Testing Status |
+|-------------------+-----------------------------------------------------+----------------|
+| MAML              | bugfixing                                           | -            |
+| ANIL              | bugfixing                                           | -            |
+| Reptile           | no (will be difficult to do with multi-gpu support) | no             |
+| ProtoNet          | to be tested                                        | no             |
+| New Meta Baseline | complete                                            | yes            |
+| FRN               | to be tested                                        | no             |
+| MTL               | todo                                                | no             |
 
 ** Training Utilities
 Trainer Wrappers inspired by HuggingFace's transformer trainer
