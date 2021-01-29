@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import Dict
 from typing import List
 from typing import Optional
+from typing import Tuple
 
 import torch
 import torch.nn as nn
@@ -177,11 +178,52 @@ class MetabatchWrapper(nn.Module):
             return multi_size_collate(outputs)
 
 
+def _generic_eval_taskgen(
+        datasets: List[Tuple[str, torch.utils.data.Dataset]],
+        task_gen: Optional[EvalTaskGenerator]=None,
+        n_samples: int=25,
+        batch_size: int=4,
+        nways: int =5,
+        kquery:int =15,
+        kshots:int =(5, 1),
+):
+
+    if task_gen is None:
+        task_gen = EvalTaskGenerator()
+
+    nways = nways if hasattr(nways, '__len__') else (nways,)
+    kshots = kshots if hasattr(kshots, '__len__') else (kshots,)
+
+    args = FewshotArguments(
+        nways=1,
+        ksupport=1,
+        kquery=kquery,
+        batch_size=batch_size,
+        epoch_steps=n_samples,
+    )
+
+    def _adjust_arguments(args, n, k):
+        args = asdict(args)
+        args.update({"nways": n, "ksupport": k})
+        args = FewshotArguments(**args)
+        return args
+
+    for prefix, ds in datasets:
+        for n in nways:
+            for k in kshots:
+                task_gen.add(f"{prefix}:n={n}k={k}", ds, _adjust_arguments(args, n, k))
+
+    return task_gen
+
+
 def create_eval_taskgen(
-    ds_base,
-    ds_novel,
+    ds_base=None,
+    ds_novel=None,
     n_samples=25,
     batch_size=4,
+    nways=5,
+    kquery=15,
+    kshots = (5, 1),
     classification_task=False,
 ):
     """Helper function for creating a common evalution task generator
@@ -192,60 +234,55 @@ def create_eval_taskgen(
 
     :param ds_base: Datset of baseclasses used to train the model
     :param ds_novel: Dataset of novel (unseen) classes
-    :param n_steps: Number of meta-batches to evaluate on
+    :param n_samples: Number of meta-batches to evaluate on
     :param batch_size: Number of tasks in each meta-batch
-
+    :param nways: Int or tuple of ints, the number of nway classification task to generate
+    :param kquery: The number of evaluation samples in each task
+    :param kshot: Int or tuple of ints, the number of kshot to use
+    :param classification_task: Add a standard classification task using the ds_base
     :returns: EvalTaskGenerator that can be used for evlauation
     """
 
-    fs_eval_n5k1 = FewshotArguments(
-        nways=5,
-        ksupport=1,
-        kquery=15,
-        batch_size=batch_size,
-        epoch_steps=n_samples,
-    )
+    datasets = []
+    if ds_base is not None:
+        datasets.append(('base', ds_base))
 
-    _args = asdict(fs_eval_n5k1)
-    _args.update({"ksupport": 5})
-    fs_eval_n5k5 = FewshotArguments(**_args)
+    if ds_novel is not None:
+        datasets.append(('novel', ds_novel))
 
-    eval_taskgen = EvalTaskGenerator()
-    eval_taskgen.add("base:n=5,k=5", ds_base, fs_eval_n5k5)
-    eval_taskgen.add("novel:n=5,k=5", ds_novel, fs_eval_n5k5)
-    eval_taskgen.add("base:n=5,k=1", ds_base, fs_eval_n5k1)
-    eval_taskgen.add("novel:n=5,k=1", ds_novel, fs_eval_n5k1)
+    if len(datasets) == 0:
+        raise ValueError("At least one dataset of either ds_base and ds_novel needs to be provided")
 
-    if classification_task:
+    eval_taskgen = _generic_eval_taskgen(datasets, None, n_samples, batch_size, nways, kquery, kshots)
+
+    if ds_base is not None and classification_task:
         eval_taskgen.add("base-class", ds_base, None)
 
     return eval_taskgen
 
 
-def create_test_taskgen(ds_test, n_samples=500, batch_size=5):
+def create_test_taskgen(
+    ds_test,
+    n_samples=800,
+    batch_size=4,
+    nways=5,
+    kquery=15,
+    kshots = (5, 1),
+):
+
     """Helper function for creating a common testing task generator
 
     This task generator will create two different tasks.
     One nway=5, kshot=5, and one nway=5, kshot=1.
 
     :param ds_test: Dataset of novel (unseen) classes
-    :param n_steps: Number of meta-batches to evaluate on
     :param batch_size: Number of tasks in each meta-batch
+    :param n_samples: Number of meta-batches to evaluate on
+    :param nways: Int or tuple of ints, the number of nway classification task to generate
+    :param kquery: The number of evaluation samples in each task
+    :param kshot: Int or tuple of ints, the number of kshot to use
 
     :returns: EvalTaskGenerator that can be used for evlauation
     """
-    test_args_n5_k1 = FewshotArguments(
-        nways=5,
-        ksupport=1,
-        kquery=5,
-        epoch_steps=n_samples,
-        batch_size=batch_size,
-    )
-    _args = asdict(test_args_n5_k1)
-    _args.update({"ksupport": 5})
-    test_args_n5_k5 = FewshotArguments(**_args)
 
-    test_taskgen = EvalTaskGenerator()
-    test_taskgen.add("test:n=5,k=1", ds_test, test_args_n5_k1)
-    test_taskgen.add("test:n=5,k=5", ds_test, test_args_n5_k5)
-    return test_taskgen
+    return _generic_eval_taskgen([('test', ds_test)], None, n_samples, batch_size, nways, kquery, kshots)

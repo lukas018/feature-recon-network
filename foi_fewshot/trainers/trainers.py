@@ -562,7 +562,7 @@ class FewshotTrainer:
         """
 
         model = self._envelop_model(model, isinstance(dataloader.dataset, TaskDataset))
-        # model.eval()
+        model.eval()
 
         total_loss, total_logits, total_labels = [], [], []
         for step, batch in enumerate(dataloader):

@@ -9,18 +9,24 @@ from learn2learn.algorithms import MAML as l2l_maml
 class MAML(nn.Module):
     """Wrapper class for MAML"""
 
-    def __init__(self, model, fast_lr, update_steps=5, loss_fn=F.cross_entropy):
+    def __init__(self, model, fast_lr, update_steps=5, eval_update_steps=None, loss_fn=None):
         """
         :param model: Model to wrap. A torch module with a fixed number of output nodes.
         :param fast_lr: The learning rate to use during the inner MAML update steps
-        :param update_steps: The number of update steps to perform during the inner step
+        :param update_steps: The number of update steps to perform during the inner step (during train)
+        :param eval_update_steps: Number of inner update steps during evaluation
         :param loss_fn: The loss function to used to update during the inner step
         """
 
         super().__init__()
         self.model = l2l_maml(model, fast_lr)
         self.update_steps = update_steps
-        self.loss_fn = loss_fn
+        self.eval_update_steps = eval_update_steps if eval_update_steps is not None else self.update_steps
+
+        if loss_fn is None:
+            self.loss_fn = nn.CrossEntropyLoss(reduction='mean')
+        else:
+            self.loss_fn = loss_fn
 
     def adapt(self, support, cache=False):
         """Adapt the model
@@ -40,9 +46,11 @@ class MAML(nn.Module):
         k = support.shape[1]
         labels = torch.tensor(np.arange(n)).unsqueeze(1).repeat((1, k)).flatten()
         labels = labels.to(support.device)
+        steps = self.update_steps if self.training else self.eval_update_steps
+        input_images = support.flatten(0, 1)
 
-        for _ in range(self.update_steps):
-            logits = maml(support.flatten(0, 1))
+        for _ in range(steps):
+            logits = maml(input_images)
             error = self.loss_fn(logits, labels)
             maml.adapt(error)
 
