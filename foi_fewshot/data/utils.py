@@ -9,6 +9,7 @@ from operator import itemgetter
 import numpy as np
 from torch.utils.data import DataLoader
 from torch.utils.data._utils import collate
+from torch.utils.data.distributed import DistributedSampler
 
 from ..utils import prepare_fewshot_batch
 from learn2learn.data import MetaDataset
@@ -67,26 +68,38 @@ def fewshot_metabatch_collate(tasks):
     return meta_batch
 
 
-def initialize_taskloader(
+class DeterministicTaskDataset():
+
+    def __init__(self, dataset, seed):
+        self.dataset = dataset
+        self.seed = seed
+
+    def __len__(self):
+        len(self.dataset)
+
+    def __getitem__(self, i):
+        state = random.getstate()
+        random.seed(self.seed + i)
+        results = self.dataset[i]
+        random.setstate(state)
+        return results
+
+
+def initialize_taskdataset(
     ds,
     nways,
     kshots,
     kquery,
     num_tasks,
-    num_workers,
-    batch_size=1,
     shuffle=False,
 ):
-    """Returns a fewshot classificatino task data loader
+    """Returns a fewshot classification task data dataset
 
     :param ds: Dataset or Metadataset
     :param nways: Number of classes (range or int)
     :param kshots: Number of shots (support + query)
     :param kquery: Number of kquery elements (fixed)
     :param num_tasks: The amount of samples to use in the data-loader
-    :param num_workers: Number of workers in the dataloader
-    :param batch_size: Meta-batch size
-    :param shuffle: Whether to shuffle the order of the samples
     """
 
     if not isinstance(ds, MetaDataset):
@@ -104,7 +117,6 @@ def initialize_taskloader(
     #     return tuple(tuple(dp) for dp in batch)
 
     task_collate_fn = functools.partial(task_collate, kquery=kquery)
-    meta_collate_fn = fewshot_metabatch_collate
 
     # We only need this custom collator if we used variable task sizes
     # if not isinstance(nways, tuple) and not isinstance(kshots, tuple):
@@ -113,14 +125,48 @@ def initialize_taskloader(
     task_ds = TaskDataset(
         ds,
         task_transforms,
-        num_tasks=num_tasks * batch_size,
+        num_tasks=num_tasks,
         task_collate=task_collate_fn,
     )
+
+    return task_ds
+
+
+def initialize_taskloader(
+    task_ds,
+    num_workers=1,
+    batch_size=1,
+    deterministic=False,
+    distributed=False,
+    epoch=0,
+    seed=42,
+):
+    """Initialize a taskloader from a task-dataset
+
+    :param task_ds: Task Dataset
+    :param num_workers: Number of workers in the dataloader
+    :param batch_size: Meta-batch size
+    :param shuffle: Whether to shuffle the order of the samples
+
+    :returns: DataLoader for meta-learning tasks
+    """
+
+    if deterministic:
+        task_ds = DeterministicTaskDataset(task_ds, seed=epoch+seed)
+
+    # If we want to use a DataDistributedParallell we need a distributed sampler
+    if distributed:
+        sampler = DistributedSampler(task_ds, seed=seed)
+        sampler.set_epoch(epoch)
+    else:
+        sampler = None
+
     return DataLoader(
         task_ds,
         num_workers=num_workers,
         batch_size=batch_size,
-        collate_fn=meta_collate_fn,
+        collate_fn=fewshot_metabatch_collate,
+        sampler=sampler
     )
 
 

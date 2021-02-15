@@ -10,8 +10,9 @@ import torch.nn as nn
 from dataclasses_json import dataclass_json
 from torch.utils.data import DataLoader
 from torch.utils.data._utils import collate
+from torch.utils.data.distributed import DistributedSampler
 
-from ..data import initialize_taskloader
+from ..data import initialize_taskloader, initialize_taskdataset
 from .trainer_arguments import FewshotArguments
 
 
@@ -23,7 +24,7 @@ def _custom_collate(batches):
     return collate.default_collate(records)
 
 
-def create_dataloader(dataset, args):
+def create_dataloader(dataset, args, epoch=0):
     """Create a dataloader from a given dataset
 
     The dataloader will output data in the form of dicts with two labels "query" and "query_labels"
@@ -36,31 +37,48 @@ def create_dataloader(dataset, args):
     batch_size = args.batch_size if args is not None else 1
     num_workers = args.num_workers if args is not None else 1
 
+    if args.distributed:
+        sampler = DistributedSampler(dataset, seed=args.seed)
+        sampler.set_epoch(epoch)
+    else:
+        sampler = None
+
     dl = DataLoader(
         dataset,
         batch_size=batch_size,
         num_workers=num_workers,
         collate_fn=_custom_collate,
         shuffle=True,
+        sampler=sampler,
     )
     return dl
 
 
-def create_taskloader(dataset, args):
+def create_taskloader(dataset, args, epoch=0):
     """Create a Taskloader specified by the TrainingArguments
 
     :param dataset:
     :param arguments: FewshotArguments
+    :param distributed
+    :param seed:
     """
 
-    dl = initialize_taskloader(
+    task_ds = initialize_taskdataset(
         dataset,
         args.nways,
         args.kshots,
         args.kquery,
-        args.epoch_steps * args.gradient_accumulation_steps,
-        args.num_workers,
-        args.batch_size,
+        args.epoch_steps * args.gradient_accumulation_steps * args.batch_size,
+    )
+
+    dl = initialize_taskloader(
+        task_ds,
+        num_workers=args.num_workers,
+        batch_size=args.batch_size,
+        deterministic=args.deterministic,
+        distributed=args.distributed,
+        seed=args.seed,
+        epoch=epoch
     )
     return dl
 
@@ -68,9 +86,10 @@ def create_taskloader(dataset, args):
 class EvalTaskGenerator:
     """Iterator object for creating dataloaders for both fewshot-tasks and standard learning"""
 
-    def __init__(self, args=None):
+    def __init__(self, args=None, seed=42):
         self.args = args
         self.entries = []
+        self.seed = seed
 
     def add(self, prefix, dataset, task_args=None):
         """Adds a new dataset to the generator
@@ -92,9 +111,9 @@ class EvalTaskGenerator:
         for entry in self.entries:
             prefix, ds, ta = entry
             if isinstance(ta, FewshotArguments):
-                yield prefix, create_taskloader(ds, ta)
+                yield prefix, create_taskloader(ds, ta, seed=self.seed)
             else:
-                yield prefix, create_dataloader(ds, ta)
+                yield prefix, create_dataloader(ds, ta, seed=self.seed)
 
     def __iter__(self):
         return self._generator()

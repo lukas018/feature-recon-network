@@ -10,6 +10,7 @@ from torchvision.transforms import ToTensor
 import learn2learn as l2l
 from .utils import fast_metadataset
 from .utils import initialize_taskloader
+from .utils import initialize_taskdataset
 from .utils import split_dataset
 
 __all__ = ["fast_metadataset", "initialize_taskloader", "split_dataset"]

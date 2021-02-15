@@ -673,6 +673,7 @@ class FewshotTrainer:
         dl = create_taskloader(
             self.train_meta_dataset,
             self.args,
+            epoch=int(self.state.epoch)
         )
         return dl
 

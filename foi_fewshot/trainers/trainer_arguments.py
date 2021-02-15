@@ -104,7 +104,7 @@ class TrainingArguments:
         default=1,
         metadata={"help": "Number of steps to perform between updates"},
     )
-    seed: int = field(default=42)
+    seed: int = field(default=42, metadata={"help": "Seed for this process"})
 
     metric_for_best_model: Optional[str] = field(
         default=None,
