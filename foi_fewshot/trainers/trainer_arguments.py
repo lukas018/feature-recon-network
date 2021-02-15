@@ -105,6 +105,10 @@ class TrainingArguments:
         metadata={"help": "Number of steps to perform between updates"},
     )
     seed: int = field(default=42, metadata={"help": "Seed for this process"})
+    deterministic: bool = field(
+        default=True,
+        metadata={"help": "Use reproducable sampling"}
+    )
 
     metric_for_best_model: Optional[str] = field(
         default=None,

@@ -75,7 +75,7 @@ class DeterministicTaskDataset():
         self.seed = seed
 
     def __len__(self):
-        len(self.dataset)
+        return len(self.dataset)
 
     def __getitem__(self, i):
         state = random.getstate()
