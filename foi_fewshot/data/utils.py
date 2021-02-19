@@ -11,6 +11,7 @@ from torch.utils.data import DataLoader
 from torch.utils.data._utils import collate
 from torch.utils.data.distributed import DistributedSampler
 
+import torch
 from ..utils import prepare_fewshot_batch
 from learn2learn.data import MetaDataset
 from learn2learn.data import TaskDataset
@@ -64,11 +65,11 @@ def fewshot_metabatch_collate(tasks):
 
     # results = prepare_task(batch, kquery)
     keys = list(tasks[0].keys())
-    meta_batch = {k: [task[k] for task in tasks] for k in keys}
+    meta_batch = {k: torch.stack([task[k] for task in tasks]) for k in keys}
     return meta_batch
 
 
-class DeterministicTaskDataset():
+class DeterministicTaskDataset(TaskDataset):
 
     def __init__(self, dataset, seed):
         self.dataset = dataset
@@ -138,19 +139,22 @@ def initialize_taskloader(
     batch_size=1,
     deterministic=False,
     distributed=False,
-    epoch=0,
+    epoch=-1,
     seed=42,
 ):
     """Initialize a taskloader from a task-dataset
 
-    :param task_ds: Task Dataset
-    :param num_workers: Number of workers in the dataloader
-    :param batch_size: Meta-batch size
-    :param shuffle: Whether to shuffle the order of the samples
+    :param task_ds: dataset to sample tasks from
+    :param num_workers: workers in dataloader
+    :param batch_size: meta-batch size (e.g. number of tasks in each batch)
+    :param deterministic:
+    :param distributed:
+    :param epoch:
+    :param seed:
 
     :returns: DataLoader for meta-learning tasks
     """
-
+    shuffle = False
     if deterministic:
         task_ds = DeterministicTaskDataset(task_ds, seed=epoch+seed)
 
@@ -158,15 +162,21 @@ def initialize_taskloader(
     if distributed:
         sampler = DistributedSampler(task_ds, seed=seed)
         sampler.set_epoch(epoch)
+    elif deterministic:
+        # Create a generator with a fixed seed
+        generator = torch.Generator().manual_seed(seed + epoch)
+        sampler = torch.utils.data.RandomSampler(task_ds, generator=generator)
     else:
         sampler = None
+        shuffle = True
 
     return DataLoader(
         task_ds,
         num_workers=num_workers,
         batch_size=batch_size,
         collate_fn=fewshot_metabatch_collate,
-        sampler=sampler
+        sampler=sampler,
+        shuffle=shuffle
     )
 
 

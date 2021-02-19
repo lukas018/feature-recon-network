@@ -66,6 +66,8 @@ class MetaBaseline(nn.Module):
         :param cache: Set to true to cache/save the centriods to use for later
             fewshot clasification.  This is useful if one wants to save a model
             trained on a particular fewshot learning task.
+
+        :returns: a embedding-vector for each class [n, e]
         """
 
         nways = support.shape[0]

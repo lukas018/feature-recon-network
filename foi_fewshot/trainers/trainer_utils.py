@@ -17,52 +17,60 @@ from .trainer_arguments import FewshotArguments
 
 
 def _custom_collate(batches):
-    """Simple collate function that wraps standard image, labels pairs
-    to a dict: query -> images,  query_labels -> labels
+    """Simple collate function that wraps standard image, labels pairs to a
+    dict: query -> images, query_labels -> labels
     """
+
     records = [{"query": images, "query_labels": labels} for images, labels in batches]
     return collate.default_collate(records)
 
 
-def create_dataloader(dataset, args, epoch=0):
+def create_dataloader(dataset, args, epoch=0) -> DataLoader:
     """Create a dataloader from a given dataset
 
-    The dataloader will output data in the form of dicts with two labels "query" and "query_labels"
-    This is to make it compatable with most of the fewshot-wrappers
+    The dataloader will output data in the form of dicts with two labels "query"
+    and "query_labels" This is to make it compatable with most of the
+    fewshot-wrappers
 
     :param dataset: Dataset from which to sample
-    :param arguments: TrainingArguments
+    :param args: TrainingArguments struct from which to base data loader format
+    :param epoch: Epoch is used to update the seed.  This allows us to recreate
+        consistent sampling for each epoch.
     """
-
     batch_size = args.batch_size if args is not None else 1
     num_workers = args.num_workers if args is not None else 1
 
-    if args.distributed:
+    if args is not None and args.distributed:
         sampler = DistributedSampler(dataset, seed=args.seed)
         sampler.set_epoch(epoch)
     else:
         sampler = None
+        from torch import Generator
+        from torch.utils.data import RandomSampler
+        generator = Generator().manual_seed(args.seed + epoch)
+        sampler = RandomSampler(dataset, generator=generator)
 
     dl = DataLoader(
         dataset,
         batch_size=batch_size,
         num_workers=num_workers,
         collate_fn=_custom_collate,
-        shuffle=True,
         sampler=sampler,
     )
     return dl
 
 
-def create_taskloader(dataset, args, epoch=0):
+def create_taskloader(dataset, args, epoch=-1):
     """Create a Taskloader specified by the TrainingArguments
 
-    :param dataset:
-    :param arguments: FewshotArguments
-    :param distributed
-    :param seed:
-    """
+    A TaskLoader is a DataLoader which samples Tasks using a MetaDataset, rather
+    than a standard DataLoader.
 
+    :param dataset: Meta- or Normal sataset.  Normal datasets will be wrapped in
+        a metadataset
+    :param args:  TrainingArguments that specifies the type of task to generate
+    :param epoch: The current epoch. Is used to seet a specific
+    """
     task_ds = initialize_taskdataset(
         dataset,
         args.nways,
@@ -111,9 +119,9 @@ class EvalTaskGenerator:
         for entry in self.entries:
             prefix, ds, ta = entry
             if isinstance(ta, FewshotArguments):
-                yield prefix, create_taskloader(ds, ta, seed=self.seed)
+                yield prefix, create_taskloader(ds, ta)
             else:
-                yield prefix, create_dataloader(ds, ta, seed=self.seed)
+                yield prefix, create_dataloader(ds, ta)
 
     def __iter__(self):
         return self._generator()

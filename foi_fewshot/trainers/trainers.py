@@ -91,7 +91,7 @@ class FewshotTrainer:
         self.model = model.to(args.device)
         self.args = args
         self.train_dataset = train_dataset
-        self.train_meta_dataset = fast_metadataset(train_dataset)
+        self.train_meta_dataset = train_dataset
         self.eval_task_generator = eval_task_generator
         self.optimizer, self.lr_scheduler = optimizers
         self.create_optimizer_and_scheduler()
@@ -565,7 +565,8 @@ class FewshotTrainer:
         model.eval()
 
         total_loss, total_logits, total_labels = [], [], []
-        for step, batch in enumerate(dataloader):
+        from tqdm import tqdm
+        for step, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
             loss, logits, labels = self.prediction_step(model, batch)
             if len(loss.shape) == 0:
                 total_loss.append(loss)
@@ -625,7 +626,7 @@ class FewshotTrainer:
             loss = F.cross_entropy(logits, labels)
             return loss
 
-        if isinstance(logits, torch.Tensor):
+        if isinstance(logits, torch.Tensor) and len(logits.shape) == 2:
             loss = _compute_loss(logits, labels)
         else:
             losses = list(itertools.starmap(_compute_loss, zip(logits, labels)))
@@ -652,6 +653,7 @@ class FewshotTrainer:
 
         metrics = dict()
         for prefix, dl in eval_task_generator:
+            print(prefix)
             _metrics = self.prediction_loop(model, dl)
             _metrics = {
                 f"eval-{prefix}-{key}": float(metric)
@@ -759,4 +761,5 @@ class PreTrainer(FewshotTrainer):
         """Returns the DataLoader used during training of the model
         :returns: DataLoader for the training objective
         """
-        return create_dataloader(self.train_dataset, self.args)
+        epoch = 0 if self.state.epoch is None else int(self.state.epoch)
+        return create_dataloader(self.train_dataset, self.args, epoch)

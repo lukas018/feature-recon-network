@@ -26,6 +26,7 @@ class ImageNet(Dataset):
     :param path_to_db: Path to lmdb dataset
     :param transform: Transform from PIL image to tensor
     """
+
     def __init__(self, path_to_db: str, transform=None):
         self.path_to_db = Path(path_to_db).expanduser()
         self.env = None
@@ -33,7 +34,6 @@ class ImageNet(Dataset):
         self.keys = None
         self._init_db()
         self.transform = transform
-
 
     def _init_db(self):
         self.env = lmdb.open(
@@ -49,6 +49,9 @@ class ImageNet(Dataset):
             # self.length = txn.stat()['entries'] - 1
             self.length = pa.deserialize(txn.get(b'__len__'))
             self.keys = pa.deserialize(txn.get(b'__keys__'))
+
+    def __len__(self):
+        return self.length
 
     def create_bookkeeping(self):
         """Create meta-dataset bookkeeping for the current
