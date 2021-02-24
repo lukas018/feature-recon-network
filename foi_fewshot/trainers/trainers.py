@@ -16,6 +16,8 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.nn.parallel import DataParallel
 from torch.nn.parallel import DistributedDataParallel
+from torch.cuda.amp import autocast
+from torch.cuda.amp import GradScaler
 
 from ..data import fast_metadataset
 from .callbacks import CallbackHandler
@@ -304,20 +306,22 @@ class FewshotTrainer:
         """
 
         model.train()
-        outputs = model(**inputs)
-        loss = self.compute_loss(model, inputs, outputs)
+        with autocast():
+            outputs = model(**inputs)
+            loss = self.compute_loss(model, inputs, outputs)
 
-        if "loss" in outputs:
-            for x, y in zip(loss, outputs["loss"]):
-                x += y
+            if "loss" in outputs:
+                for x, y in zip(loss, outputs["loss"]):
+                    x += y
 
-        if len(loss.size()) > 0:
-            loss = loss.mean()
+            if len(loss.size()) > 0:
+                loss = loss.mean()
 
-        if self.args.gradient_accumulation_steps > 1:
-            loss = loss / self.args.gradient_accumulation_steps
+            if self.args.gradient_accumulation_steps > 1:
+                loss = loss / self.args.gradient_accumulation_steps
 
-        loss.backward()
+        self.scaler.scale(loss).backward()
+        # loss.backward()
         return loss.detach()
 
     def train(self, modeldir=None, trial=None):
@@ -353,6 +357,8 @@ class FewshotTrainer:
         if self.state.max_steps == 0:
             self.state.max_steps = max_steps
 
+        # Initialize gradscaler
+        self.scaler = GradScaler()
         # for _ in range(epochs_trained):
         #     epoch_iterator = self.get_train_dataloader()
         #     for _ in epoch_iterator:
@@ -448,8 +454,10 @@ class FewshotTrainer:
 
         """
         # loss.backward()
-        self.optimizer.step()
+        self.scaler.step(self.optimizer)
+        # self.optimizer.step()
         self.optimizer.zero_grad()
+        self.scaler.update()
 
     def log(self, logs):
         """Save the logs to the current state
@@ -534,11 +542,12 @@ class FewshotTrainer:
             return [detach(x) for x in output]
 
         with torch.no_grad() if self.args.disable_gradient_during_eval else dummy_cm():
-            outputs = model(**inputs)
-            labels = inputs["query_labels"]
-            logits = outputs["logits"]
+            with autocast():
+                outputs = model(**inputs)
+                labels = inputs["query_labels"]
+                logits = outputs["logits"]
 
-            loss = self.compute_loss(model, inputs, outputs)
+                loss = self.compute_loss(model, inputs, outputs)
 
             if "loss" in outputs:
                 for x, y in zip(loss, outputs["loss"]):
